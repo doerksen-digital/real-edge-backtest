@@ -65,7 +65,7 @@ Two fill models exist in the engine:
 | Phase | Result | Done when |
 |---|---|---|
 | 0. Setup | Repository, license, README, project config, CI | The empty project installs and the tests run on GitHub |
-| 1. Data | BTCUSDT 1h spot from 2018 to today | Checksums pass, no gaps or duplicates, all times in UTC |
+| 1. Data | BTCUSDT 1h spot from 2018 to today | Checksums pass, no duplicates, all gaps listed and never filled, all times in UTC |
 | 2. Engine and parity | EMA 9 / rolling VWAP strategy in Python | Same trade list as the TradingView run for 2026 (entry times and sides), profit factor and trade count within a small tolerance, lookahead test passes |
 | 3. Report and log | One command produces the HTML report and a log entry | Every run can be reproduced from its log entry |
 | 4. Robustness | Parameter grid, walk-forward, lockbox, cost stress, Monte Carlo, ETH and SOL | EMA/VWAP goes through the full test on 2018 to 2026 |
@@ -102,3 +102,7 @@ Robustness tests (neighbor parameters, walk-forward, lockbox) are judged against
 ## Out of scope for now
 
 Tick data, order book simulation, machine learning, automatic order execution.
+
+## Data license
+
+The Binance Vision dataset terms (v1.0, 2026-08-26) license data.binance.vision under CC BY-NC-SA 4.0 and allow only personal, non-production backtesting research. Live signals and paper trading in phase 6 cannot use this data under these terms. They need a different data source or a license review first.
