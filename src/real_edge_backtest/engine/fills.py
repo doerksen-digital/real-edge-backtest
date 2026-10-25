@@ -10,7 +10,8 @@ case, the emulator fills the order at the opening price".
 - pessimistic: any stop the bar's range reaches fills before any limit, whatever the path.
 
 With a single stop per position, as in ema_vwap, both models give the same fills. They differ
-once a stop and a target are both inside one bar.
+once a stop and a target (a bracket, as in ny_range) are both inside one bar and the open passed
+neither: both_in_range() tells when the fill model decided the exit.
 """
 
 from dataclasses import dataclass
@@ -74,6 +75,15 @@ def pessimistic_fill(bar: Bar, orders: list[PriceOrder]) -> tuple[PriceOrder, in
             if order.kind == kind and bar.low <= order.level <= bar.high:
                 return order, order.level
     return None
+
+
+def both_in_range(bar: Bar, orders: list[PriceOrder]) -> bool:
+    """A stop and a limit both lie inside the bar's range and the open passed neither, so the
+    fill model, not the price, decides which one fills."""
+    if _gap_fill(bar, orders):
+        return False
+    kinds = {o.kind for o in orders if bar.low <= o.level <= bar.high}
+    return kinds == {"stop", "limit"}
 
 
 FILL_MODELS = {"tradingview": tradingview_fill, "pessimistic": pessimistic_fill}

@@ -6,6 +6,7 @@ appear only when results are written out.
 Rules (TradingView broker emulator, Pine v6 docs):
 - market orders fill at the bar close (process_orders_on_close) plus slippage against the trader
 - stop orders fill at their level, or at the open after a gap, plus slippage against the trader
+- limit orders fill at their level, or at the open after a gap, without slippage
 - commission is a percent of each fill's value
 - an entry against an open position closes it and opens the new one in a single fill
 - pyramiding 0: an entry in the direction of the open position is rejected
@@ -18,7 +19,7 @@ from decimal import Decimal
 import pandas as pd
 
 from real_edge_backtest.engine.config import BrokerConfig
-from real_edge_backtest.engine.fills import FILL_MODELS, Bar, PriceOrder
+from real_edge_backtest.engine.fills import FILL_MODELS, Bar, PriceOrder, both_in_range
 
 
 @dataclass
@@ -38,7 +39,9 @@ class Trade:
     exit_commission: Decimal = Decimal(0)
     gross_pnl: Decimal = Decimal(0)
     sizing_capped: bool = False  # the sizing mode wanted more than 100% of equity
-    exit_by_stop: bool = False  # closed by a price (stop) order inside the bar
+    exit_by_stop: bool = False  # closed by a stop order inside the bar
+    exit_kind: str = ""  # "stop" or "limit" for a price order fill, "" for a market exit
+    both_in_bar: bool = False  # exit bar held both bracket levels; the fill model decided
 
     @property
     def commission(self) -> Decimal:
@@ -154,6 +157,23 @@ class Broker:
         level = trade.entry_price - trade.side * ticks
         self.orders[order_id] = PriceOrder(order_id, "stop", -trade.side, level, comment)
 
+    def exit_bracket(
+        self, stop_id: str, stop_level: int, limit_id: str, limit_level: int, comment: str
+    ) -> None:
+        """Stop and limit exit at absolute levels (ticks), one cancelling the other: the first
+        to fill closes the trade and every order with it. The stop must lie on the losing side
+        of the limit (below it for a long, above it for a short)."""
+        trade = self.open_trade
+        if trade is None:
+            return
+        if (limit_level - stop_level) * trade.side <= 0:
+            raise ValueError(
+                f"bracket stop {stop_level} must be on the losing side of limit {limit_level}"
+            )
+        side = -trade.side
+        self.orders[stop_id] = PriceOrder(stop_id, "stop", side, stop_level, comment)
+        self.orders[limit_id] = PriceOrder(limit_id, "limit", side, limit_level, comment)
+
     def move_stop(self, order_id: str, level: int, comment: str = "Trailing stop") -> None:
         """Set a stop exit of the open trade to `level` (ticks), only if that tightens it: a
         long's stop can only rise, a short's only fall. Without such an order, one is placed."""
@@ -177,11 +197,14 @@ class Broker:
         assert self.bar is not None
         if self.open_trade is None or not self.orders:
             return
-        fill = FILL_MODELS[self.config.fill_model](self.bar, list(self.orders.values()))
+        orders = list(self.orders.values())
+        fill = FILL_MODELS[self.config.fill_model](self.bar, orders)
         if fill is None:
             return
         order, trigger = fill
         price = self._slipped(trigger, order.side) if order.kind == "stop" else trigger
         trade = self.open_trade
         self._close_trade(price, trade.lots, order.comment)
-        trade.exit_by_stop = True
+        trade.exit_by_stop = order.kind == "stop"
+        trade.exit_kind = order.kind
+        trade.both_in_bar = both_in_range(self.bar, orders)

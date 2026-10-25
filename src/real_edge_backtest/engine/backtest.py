@@ -89,7 +89,9 @@ def excursions(
 
     On the exit bar of a stop exit, the adverse extreme is the stop trigger and the favorable
     extreme is not counted (pessimistic: the stop is assumed to come first). On the exit bar
-    of a market exit at the close, the whole bar counts.
+    of a limit exit, the favorable extreme is the limit fill (limits have no slippage) and the
+    adverse extreme is the bar's. On the exit bar of a market exit at the close, the whole bar
+    counts.
 
     pct values are fractions of the entry price; atr values are in ATR at entry; mae is a
     positive distance. mfe_bar: bars after entry at which the MFE was first reached (0: none).
@@ -97,6 +99,8 @@ def excursions(
     side, e = trade.side, trade.entry_index
     last = len(close) - 1 if trade.exit_index is None else trade.exit_index
     entry = int(close[e])
+    # Ticks to add to the exit fill to undo its slippage; limit fills have none.
+    unslip = 0 if trade.exit_kind == "limit" else side * slippage_ticks
     best = worst = 0
     best_bar = 0
     for k in range(e + 1, last + 1):
@@ -105,6 +109,8 @@ def excursions(
         if k == trade.exit_index and trade.exit_by_stop:
             favorable = entry
             adverse = trade.exit_price + side * slippage_ticks
+        elif k == trade.exit_index and trade.exit_kind == "limit":
+            favorable = trade.exit_price
         gain = side * (int(favorable) - entry)
         if gain > best:
             best, best_bar = gain, k - e
@@ -112,7 +118,7 @@ def excursions(
     if trade.exit_index is None:
         realized = side * (int(close[last]) - entry)
     else:
-        realized = side * (trade.exit_price + side * slippage_ticks - entry)
+        realized = side * (trade.exit_price + unslip - entry)
     atr_ok = atr > 0 and not np.isnan(atr)
     return {
         "mfe_pct": best / entry,
@@ -205,6 +211,7 @@ class Backtest:
                     "entry_time": t.entry_time,
                     "exit_time": t.exit_time,
                     "exit_by_stop": t.exit_by_stop,
+                    "exit_kind": t.exit_kind,
                     **strategy.entry_features(t.entry_index, t.side),
                     **excursions(
                         t,

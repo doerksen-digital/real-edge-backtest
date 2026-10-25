@@ -64,6 +64,8 @@ def trades_frame(result: Result) -> pd.DataFrame:
                 "net_pnl": float(t.net_pnl),
                 "touches_gap": result.touches_gap(t),
                 "sizing_capped": t.sizing_capped,
+                "exit_kind": t.exit_kind,
+                "both_in_bar": t.both_in_bar,
             }
         )
     return pd.DataFrame(rows)
