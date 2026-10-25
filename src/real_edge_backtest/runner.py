@@ -1,10 +1,18 @@
-"""Run a backtest from a RunConfig: load the dataset, pick the strategy, run the engine."""
+"""Run a backtest from a RunConfig: load the dataset, pick the strategy, run the engine, and
+(execute) write the run folder and its experiment log line."""
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
+from real_edge_backtest import experiments
+from real_edge_backtest.analysis.metrics import Analysis, analyze, load_run
 from real_edge_backtest.data.intervals import interval_seconds
 from real_edge_backtest.data.paths import parquet_path
 from real_edge_backtest.engine import Backtest, Result, RunConfig
+from real_edge_backtest.engine.results import write_run
 from real_edge_backtest.holdout import check_holdout
 from real_edge_backtest.provenance import git_state, sha256_file, sha256_text
 from real_edge_backtest.strategies import STRATEGIES
@@ -59,12 +67,60 @@ def run_metadata(config: RunConfig) -> dict:
         },
         "sizing": config.sizing.describe(),
         "criteria": config.criteria,
+        **({"overrides": config.overrides} if config.overrides else {}),
         "provenance": {
             **git_state(),
-            "config_sha256": sha256_text(config.source_text),
+            "config_sha256": sha256_text(config.fingerprint_text),
             "data_sha256": sha256_file(data) if data.exists() else None,
         },
     }
+
+
+@dataclass
+class Execution:
+    folder: Path
+    meta: dict[str, Any]
+    result: Result
+    analysis: Analysis
+    variants: int  # parameter sets of this strategy family logged so far, this run included
+
+
+def execute(config: RunConfig, holdout: bool = False) -> Execution:
+    """One logged run: holdout check, seen-window check, engine, run folder, log line."""
+    is_holdout = check_holdout(config.symbol, holdout)
+    meta = run_metadata(config)
+    meta["holdout"] = is_holdout
+    entries = experiments.read_log(config.experiment_log)
+    window = meta["window"]
+    meta["seen_window"] = experiments.seen_window(
+        entries, config.strategy, window["start"], window["end"]
+    )
+    candles = load_candles(config)
+    meta["first_candle"] = candles["open_time"].iloc[0]
+    meta["warnings"] = history_warnings(candles, window["start"])
+    result = run_backtest(config, candles, holdout=holdout)
+    meta["gaps"] = {
+        **result.gap_summary(),
+        "ignored_signals": result.counters.get("ignored_after_gap", 0),
+    }
+    folder = write_run(result, config.runs_dir, config.name, config.source_text, meta)
+    a = analyze(load_run(folder))
+    entry = experiments.make_entry(
+        meta,
+        {
+            "trades": a.stats["trades"],
+            "net_pnl": a.stats["net_pnl"],
+            "return": a.total_return,
+            "profit_factor": a.stats["profit_factor"],
+            "max_drawdown_pct": a.max_drawdown[1],
+            "time_in_market": a.time_in_market,
+            "passed": a.passed,
+        },
+        folder.as_posix(),
+    )
+    experiments.append(config.experiment_log, entry)
+    variants = experiments.variant_count([*entries, entry], config.strategy)
+    return Execution(folder, meta, result, a, variants)
 
 
 def run_backtest(

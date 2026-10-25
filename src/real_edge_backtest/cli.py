@@ -57,10 +57,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="allow a run on holdout data (ETHUSDT, SOLUSDT); marked as a holdout run",
     )
 
-    report = commands.add_parser("report", help="write the HTML report of a run folder")
-    report.add_argument("--run", type=Path, required=True, help="run folder written by 'run'")
+    report = commands.add_parser(
+        "report", help="write the HTML report of a run folder, or compare two run folders"
+    )
+    target = report.add_mutually_exclusive_group(required=True)
+    target.add_argument("--run", type=Path, help="run folder written by 'run'")
+    target.add_argument(
+        "--compare", type=Path, nargs=2, metavar=("RUN_A", "RUN_B"), help="two run folders"
+    )
     report.add_argument(
-        "--out", type=Path, help="HTML file to write (default: report.html in the run folder)"
+        "--out",
+        type=Path,
+        help="HTML file to write (default: report.html in the run folder, or "
+        "reports/compare-<A>-vs-<B>.html)",
+    )
+
+    sweep = commands.add_parser(
+        "sweep", help="run one hypothesis over its predefined parameter values"
+    )
+    sweep.add_argument("--spec", type=Path, required=True, help="sweep spec TOML")
+    sweep.add_argument(
+        "--holdout",
+        action="store_true",
+        help="allow runs on holdout data (ETHUSDT, SOLUSDT); marked as holdout runs",
     )
     return parser
 
@@ -68,58 +87,23 @@ def _build_parser() -> argparse.ArgumentParser:
 def _run(args: argparse.Namespace) -> int:
     # Imported here so data commands do not load the engine.
     from real_edge_backtest import experiments
-    from real_edge_backtest.analysis.metrics import analyze, load_run
     from real_edge_backtest.engine import load_config
-    from real_edge_backtest.engine.results import summarize, write_run
-    from real_edge_backtest.holdout import check_holdout
-    from real_edge_backtest.runner import (
-        history_warnings,
-        load_candles,
-        run_backtest,
-        run_metadata,
-    )
+    from real_edge_backtest.engine.results import summarize
+    from real_edge_backtest.runner import execute
 
     try:
         config = load_config(args.config)
-        holdout = check_holdout(config.symbol, args.holdout)
-        meta = run_metadata(config)
-        meta["holdout"] = holdout
-        entries = experiments.read_log(config.experiment_log)
-        window = meta["window"]
-        seen = experiments.seen_window(entries, config.strategy, window["start"], window["end"])
-        meta["seen_window"] = seen
-        candles = load_candles(config)
-        meta["first_candle"] = candles["open_time"].iloc[0]
-        meta["warnings"] = history_warnings(candles, window["start"])
-        result = run_backtest(config, candles, holdout=args.holdout)
-        meta["gaps"] = {
-            **result.gap_summary(),
-            "ignored_signals": result.counters.get("ignored_after_gap", 0),
-        }
+        run = execute(config, holdout=args.holdout)
     except (FileNotFoundError, KeyError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    folder = write_run(result, config.runs_dir, config.name, config.source_text, meta)
-    a = analyze(load_run(folder))
-    entry = experiments.make_entry(
-        meta,
-        {
-            "trades": a.stats["trades"],
-            "net_pnl": a.stats["net_pnl"],
-            "return": a.total_return,
-            "profit_factor": a.stats["profit_factor"],
-            "max_drawdown_pct": a.max_drawdown[1],
-            "time_in_market": a.time_in_market,
-            "passed": a.passed,
-        },
-        folder.as_posix(),
-    )
-    experiments.append(config.experiment_log, entry)
-    variants = experiments.variant_count([*entries, entry], config.strategy)
+    meta, result = run.meta, run.result
+    window, seen, folder = meta["window"], meta["seen_window"], run.folder
+    variants = run.variants
 
     s = summarize(result)
     open_trades = len(result.trades) - s.trades
-    if holdout:
+    if meta["holdout"]:
         print(f"HOLDOUT RUN: {config.symbol} is holdout data (research protocol, docs/PLAN.md)")
     for warning in meta["warnings"]:
         print(f"WARNING: {warning}")
@@ -149,14 +133,34 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _report(args: argparse.Namespace) -> int:
-    from real_edge_backtest.report.html import write_report
+    from real_edge_backtest.report.html import write_compare, write_report
 
     try:
-        path = write_report(args.run, args.out)
+        if args.compare:
+            path = write_compare(*args.compare, args.out)
+        else:
+            path = write_report(args.run, args.out)
     except (FileNotFoundError, KeyError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
     print(f"Report written to {path}")
+    return 0
+
+
+def _sweep(args: argparse.Namespace) -> int:
+    from real_edge_backtest.sweep import format_table, load_spec, run_sweep
+
+    try:
+        spec = load_spec(args.spec)
+        print(f"Sweep {spec.id}: {spec.base}, {len(spec.points)} runs")
+        result = run_sweep(spec, holdout=args.holdout, progress=print)
+    except (FileNotFoundError, KeyError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    print()
+    print(format_table(result.table))
+    print()
+    print(f"Table written to {result.path}")
     return 0
 
 
@@ -223,6 +227,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run(args)
     if args.command == "report":
         return _report(args)
+    if args.command == "sweep":
+        return _sweep(args)
     if args.command == "data" and args.data_command == "download":
         return _download(args)
     return _check(args)

@@ -1,5 +1,7 @@
 """Run configuration, read from TOML with the standard library."""
 
+import copy
+import json
 import tomllib
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -45,6 +47,16 @@ class RunConfig:
     experiment_log: Path = Path("experiments/log.jsonl")
     criteria: dict[str, Any] = field(default_factory=dict)  # pass criteria, read by the report
     source_text: str = ""
+    # Dotted-key overrides applied on top of source_text (sweeps); empty for a plain run.
+    overrides: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def fingerprint_text(self) -> str:
+        """The text config_sha256 is computed from: the config file itself for a plain run,
+        plus the canonical JSON of the overrides for a sweep point."""
+        if not self.overrides:
+            return self.source_text
+        return self.source_text + "\n# overrides\n" + json.dumps(self.overrides, sort_keys=True)
 
 
 def _decimal(value: Any) -> Decimal:
@@ -52,9 +64,37 @@ def _decimal(value: Any) -> Decimal:
     return Decimal(value) if isinstance(value, str) else Decimal(str(value))
 
 
-def load_config(path: Path) -> RunConfig:
+def apply_overrides(raw: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """A copy of the raw TOML dict with dotted keys set, e.g. "strategy.params.vwap_bars".
+    A numeric part indexes a list ("strategy.filters.0.lookback"). Every part but the last
+    must already exist, so a typo cannot create a new section."""
+    raw = copy.deepcopy(raw)
+    for key, value in overrides.items():
+        *parents, last = key.split(".")
+        node: Any = raw
+        for part in parents:
+            try:
+                node = node[int(part)] if isinstance(node, list) else node[part]
+            except (KeyError, IndexError, ValueError):
+                raise ValueError(
+                    f"override {key!r}: {part!r} does not exist in the config"
+                ) from None
+        if isinstance(node, list):
+            node[int(last)] = value
+        else:
+            node[last] = value
+    return raw
+
+
+def load_config(path: Path, overrides: dict[str, Any] | None = None) -> RunConfig:
     text = path.read_text(encoding="utf-8")
     raw = tomllib.loads(text)
+    if overrides:
+        raw = apply_overrides(raw, overrides)
+    return parse_config(raw, text, overrides or {})
+
+
+def parse_config(raw: dict[str, Any], text: str, overrides: dict[str, Any]) -> RunConfig:
     data = raw.get("data", {})
     broker = raw.get("broker", {})
     strategy = raw.get("strategy", {})
@@ -87,4 +127,5 @@ def load_config(path: Path) -> RunConfig:
         experiment_log=Path(raw.get("output", {}).get("experiment_log", "experiments/log.jsonl")),
         criteria=dict(raw.get("criteria", {})),
         source_text=text,
+        overrides=dict(overrides),
     )

@@ -119,9 +119,29 @@ Gaps are exchange downtime. They are never filled.
 - Trade metrics: profit factor, expectancy, win rate, average win and loss, PnL without the top 1, 3 and 5 trades and without the top 1% (return method and USD method), time in market, max drawdown on close equity and on closed trades.
 - "Without the best trades", return method (used by the pass criterion): each closed trade's net PnL as a fraction of equity at its entry, the best trades by that return removed, the remaining returns compounded in entry order from the starting equity. The USD method subtracts the best trades' USD PnL and is shown as "USD method (distorted by compounding)": under `percent_equity` sizing later trades are larger in USD only because equity grew.
 - Buy and hold: one buy at the first window candle's open, sold at the last window candle's close, same starting equity, commission and slippage.
-- Charts: equity, drawdown, return per year, strategy vs buy and hold.
-- Tables per calendar year (UTC) and per half of the window. A trade counts in the period of its exit.
+- Costs: profit factor before fees (gross) and before fees and slippage, fees and slippage paid. Fill prices include slippage, so gross PnL is after slippage and before fees.
+- Charts: equity, drawdown, return per year, strategy vs buy and hold, rolling 12-month profit factor and return.
+- Tables per calendar year (UTC), per year and side, and per half of the window. A trade counts in the period of its exit. Per year also: average ATR as % of price, average gross move per trade (unslipped prices), average round-trip fee and slippage.
+- The best and worst 1% of trades by percent return (net PnL over equity at entry).
 - Gap sensitivity, the trade list and, with the `report` extra, a separate "period-based metrics (QuantStats)" section on daily window returns.
+
+### Enriched trades
+
+Every run also writes `trades_enriched.csv`, one row per trade:
+
+- At entry, from the entry bar only (a test cuts the data right after each entry bar and checks every value): ATR as % of price, distance of the close to the daily EMA in ATR, slope of the daily EMA, EMA/VWAP separation in ATR, EMA/VWAP crosses in the 24 and 48 bars before, volume against its 24-bar and 7-day average, hour and weekday (UTC) of the fill.
+- During the trade: MFE and MAE in percent and in ATR at entry, realized gross move, giveback (MFE minus realized), bars held and the bar of the MFE. On the exit bar of a stop exit, only the move to the stop counts.
+
+### Comparing runs and sweeps
+
+```bash
+real-edge-backtest report --compare runs/<run A> runs/<run B>
+real-edge-backtest sweep --spec configs/sweeps/<id>.toml
+```
+
+`report --compare` writes `reports/compare-<A>-vs-<B>.html` (or `--out`): metrics and pass criteria side by side, trades that disappeared, appeared or changed their exit (matched by side and entry time), and what B did with A's top 1% winners by percent return.
+
+`sweep` runs one hypothesis over the values in its spec: `id`, `base` (a run config) and `[grid]` with one or two dotted config keys and their values, for example `"strategy.params.vwap_bars" = [18, 24, 30]`. Every grid point is a normal logged run, so the variant count stays honest. It prints a plateau table (PF, net PnL, trades, fees, max drawdown, both halves, pass) and writes it to `runs/sweeps/<UTC timestamp>-<id>/sweep.csv`. A run with overrides records them in `run.json`, and its config hash covers the config text plus the overrides; a plain run's hash is the hash of the config file, as before.
 
 ### Experiment log
 

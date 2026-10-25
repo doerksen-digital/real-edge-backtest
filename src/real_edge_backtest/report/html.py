@@ -484,3 +484,172 @@ def write_report(folder: Path, out: Path | None = None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render(load_run(folder)), encoding="utf-8")
     return target
+
+
+# Comparison of two runs ----------------------------------------------------------------------
+
+
+def _fmt_time(value: Any) -> str:
+    return "" if pd.isna(value) else f"{value:%Y-%m-%d %H:%M}"
+
+
+def _side_by_side(a: Analysis, b: Analysis) -> str:
+    rows = [
+        [_e(k), _e(va), _e(vb)]
+        for (k, va), (_, vb) in zip(
+            metric_rows(a) + cost_rows(a), metric_rows(b) + cost_rows(b), strict=True
+        )
+    ]
+    return "<h2>Metrics</h2>" + _table(["Metric", "A", "B"], rows)
+
+
+def _criteria_both(a: Analysis, b: Analysis) -> str:
+    def verdict(c) -> str:
+        if c.passed is None:
+            return '<span class="info">comparison</span>'
+        return '<span class="pass">pass</span>' if c.passed else '<span class="fail">fail</span>'
+
+    rows = [
+        [
+            _e(ca.name),
+            _e(ca.threshold),
+            _e(ca.value),
+            verdict(ca),
+            _e(cb.threshold),
+            _e(cb.value),
+            verdict(cb),
+        ]
+        for ca, cb in zip(a.checks, b.checks, strict=True)
+    ]
+    return "<h2>Pass criteria</h2>" + _table(
+        ["Criterion", "Threshold A", "A", "Result A", "Threshold B", "B", "Result B"], rows
+    )
+
+
+def _trade_rows(t: pd.DataFrame) -> list[list[str]]:
+    return [
+        [
+            int(r["number"]),
+            _e(r["side"]),
+            _fmt_time(r["entry_time"]),
+            _fmt_time(r["exit_time"]),
+            _e(r["exit_comment"]),
+            _money(r["net_pnl"]),
+        ]
+        for _, r in t.iterrows()
+    ]
+
+
+def _diff_section(diff) -> str:
+    headers = ["#", "Side", "Entry", "Exit", "Exit reason", "Net PnL"]
+    changed = [
+        [
+            int(r["number_a"]),
+            int(r["number_b"]),
+            _e(r["side"]),
+            _fmt_time(r["entry_time"]),
+            _fmt_time(r["exit_time_a"]),
+            _fmt_time(r["exit_time_b"]),
+            _e(r["exit_comment_a"]),
+            _e(r["exit_comment_b"]),
+            _money(r["net_pnl_a"]),
+            _money(r["net_pnl_b"]),
+        ]
+        for _, r in diff.changed.iterrows()
+    ]
+
+    def block(title: str, body: str) -> str:
+        return f'<h3>{_e(title)}</h3><div class="scroll">{body}</div>'
+
+    return (
+        "<h2>Trades</h2>"
+        '<p class="note">Trades are matched by side and entry time (candle open, UTC). '
+        f"{diff.same_exit} trades are in both runs with the same exit; their size and PnL can "
+        "still differ because equity differs.</p>"
+        + block(
+            f"Disappeared: in A, not in B ({len(diff.disappeared)})",
+            _table(headers, _trade_rows(diff.disappeared)),
+        )
+        + block(
+            f"Appeared: in B, not in A ({len(diff.appeared)})",
+            _table(headers, _trade_rows(diff.appeared)),
+        )
+        + block(
+            f"Changed exit ({len(diff.changed)})",
+            _table(
+                [
+                    "# A",
+                    "# B",
+                    "Side",
+                    "Entry",
+                    "Exit A",
+                    "Exit B",
+                    "Reason A",
+                    "Reason B",
+                    "Net PnL A",
+                    "Net PnL B",
+                ],
+                changed,
+            ),
+        )
+    )
+
+
+def _fate_section(fate: pd.DataFrame, pct: float) -> str:
+    rows = [
+        [
+            int(r["number_a"]),
+            _e(r["side"]),
+            _fmt_time(r["entry_time"]),
+            _pct(r["return_a"]),
+            _e(r["outcome"]),
+            _fmt_time(r.get("exit_time_b")),
+            "" if pd.isna(r.get("return_b")) else _pct(r["return_b"]),
+            _e(r.get("note") or ""),
+        ]
+        for _, r in fate.iterrows()
+    ]
+    counts = fate["outcome"].value_counts() if len(fate) else pd.Series(dtype=int)
+    summary = ", ".join(f"{n} {k}" for k, n in counts.items())
+    return (
+        f"<h2>A's top {pct:g}% winners in B</h2>"
+        f'<p class="note">A\'s best {len(fate)} trades by percent return: {_e(summary)}.</p>'
+        + _table(["# A", "Side", "Entry", "Return A", "In B", "Exit B", "Return B", "Note"], rows)
+    )
+
+
+def render_compare(run_a: Run, run_b: Run) -> str:
+    from real_edge_backtest.analysis.compare import diff_trades, top_fate
+
+    a, b = analyze(run_a), analyze(run_b)
+    pct = a.without_top_pct[0]
+    names = [
+        ("A", run_a.folder.name if run_a.folder else run_a.meta.get("name")),
+        ("B", run_b.folder.name if run_b.folder else run_b.meta.get("name")),
+    ]
+    holdout = "".join(
+        f'<div class="holdout">HOLDOUT RUN in {label}: {_e(run.meta.get("symbol"))}</div>'
+        for label, run in (("A", run_a), ("B", run_b))
+        if run.meta.get("holdout")
+    )
+    body = (
+        "<h1>Run comparison</h1>"
+        + holdout
+        + _kv([(label, name) for label, name in names])
+        + _criteria_both(a, b)
+        + _side_by_side(a, b)
+        + _fate_section(top_fate(run_a, run_b, pct), pct)
+        + _diff_section(diff_trades(run_a.trades, run_b.trades))
+    )
+    return (
+        f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        f'<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>Run comparison</title><style>{CSS}</style></head><body>{body}</body></html>\n"
+    )
+
+
+def write_compare(folder_a: Path, folder_b: Path, out: Path | None = None) -> Path:
+    target = out or Path("reports") / f"compare-{folder_a.name}-vs-{folder_b.name}.html"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(render_compare(load_run(folder_a), load_run(folder_b)), encoding="utf-8")
+    return target
