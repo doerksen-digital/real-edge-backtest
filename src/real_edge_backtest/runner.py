@@ -5,6 +5,7 @@ import pandas as pd
 from real_edge_backtest.data.intervals import interval_seconds
 from real_edge_backtest.data.paths import parquet_path
 from real_edge_backtest.engine import Backtest, Result, RunConfig
+from real_edge_backtest.provenance import git_state, sha256_file, sha256_text
 from real_edge_backtest.strategies import STRATEGIES
 
 
@@ -19,6 +20,7 @@ def run_metadata(config: RunConfig) -> dict:
     """What a report needs to know about a run besides its trades and equity."""
     params = {**STRATEGIES[config.strategy].params, **config.params}
     b = config.broker
+    data = parquet_path(config.data_dir, config.symbol, config.interval)
     return {
         "name": config.name,
         "strategy": config.strategy,
@@ -36,6 +38,11 @@ def run_metadata(config: RunConfig) -> dict:
             "fill_model": b.fill_model,
         },
         "criteria": config.criteria,
+        "provenance": {
+            **git_state(),
+            "config_sha256": sha256_text(config.source_text),
+            "data_sha256": sha256_file(data) if data.exists() else None,
+        },
     }
 
 

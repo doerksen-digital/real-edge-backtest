@@ -51,6 +51,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run = commands.add_parser("run", help="run a backtest from a TOML config")
     run.add_argument("--config", type=Path, required=True, help="path to the run config")
+
+    report = commands.add_parser("report", help="write the HTML report of a run folder")
+    report.add_argument("--run", type=Path, required=True, help="run folder written by 'run'")
+    report.add_argument(
+        "--out", type=Path, help="HTML file to write (default: report.html in the run folder)"
+    )
     return parser
 
 
@@ -78,6 +84,18 @@ def _run(args: argparse.Namespace) -> int:
     print(f"  net PnL         {s.net_pnl:,.2f}")
     print(f"  max drawdown    {s.max_drawdown:,.2f}")
     print(f"  output          {folder}")
+    return 0
+
+
+def _report(args: argparse.Namespace) -> int:
+    from real_edge_backtest.report.html import write_report
+
+    try:
+        path = write_report(args.run, args.out)
+    except (FileNotFoundError, KeyError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    print(f"Report written to {path}")
     return 0
 
 
@@ -142,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "run":
         return _run(args)
+    if args.command == "report":
+        return _report(args)
     if args.command == "data" and args.data_command == "download":
         return _download(args)
     return _check(args)
