@@ -87,6 +87,10 @@ The exchange research happens between phase 2 and phase 3.
 
 Part B adds a lockfile so a run can be reproduced with the exact package versions. Its purpose is reproducibility.
 
+## Phase 4a: diagnosis and hypotheses
+
+Built on `feat/phase-4a-research`: ETH and SOL holdout data behind `--holdout`, cost, side, tail and rolling sections in the report, `trades_enriched.csv` (entry features and excursions), `report --compare`, `sweep`, entry filter and exit plug-ins (with deferred entries), higher timeframes built from 1h, and `analysis/diagnosis.py`. The BTC diagnosis is in [research/diagnosis.md](research/diagnosis.md), the hypotheses in [research/hypotheses.md](research/hypotheses.md). Hypotheses run only after the list is approved.
+
 ## Seen and unseen data
 
 EMA 21 for the daily trend filter was chosen on TradingView on January to October 2026. For `ema_vwap` that window is seen. 2018 to 2025 is unseen. The experiment log starts with those TradingView runs, so every report on 2026 shows the window as seen.
