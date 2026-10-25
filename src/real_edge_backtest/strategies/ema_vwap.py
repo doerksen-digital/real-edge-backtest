@@ -2,10 +2,12 @@
 
 Long on ta.crossover(EMA, VWAP), short on ta.crossunder. An opposite cross reverses the position
 in one order. A 2 x ATR(14) stop, frozen at entry, can fill intrabar; after it the strategy is
-flat until the next cross. Optional daily trend filter: longs only if the previous completed
-daily close is above the previous completed daily EMA, shorts only if below; a blocked cross
-still closes the open trade. Only bars whose close time is inside [start, end) can trade, and an
-open position is closed with "Test end" on the first bar that closes at or after end.
+flat until the next cross. No cross is acted on until EMA, VWAP, ATR and the previous
+completed day's close and daily EMA all exist. Optional daily trend filter: longs only if the
+previous completed daily close is above the previous completed daily EMA, shorts only if below;
+a blocked cross still closes the open trade. Only bars whose close time is inside [start, end)
+can trade, and an open position is closed with "Test end" on the first bar that closes at or
+after end.
 """
 
 import math
@@ -106,14 +108,23 @@ class EmaVwap(Strategy):
                 broker.close("Test end")
             return
 
-        ready = self.valid(self.ema[i], self.vwap[i], self.atr[i]) and self.atr[i] > 0
+        # No trade until every indicator, including the previous day's daily values, exists.
+        ready = (
+            self.valid(
+                self.ema[i],
+                self.vwap[i],
+                self.atr[i],
+                self.daily_ema_prev[i],
+                self.daily_close_prev[i],
+            )
+            and self.atr[i] > 0
+        )
         up, down = bool(self.cross_up[i]), bool(self.cross_down[i])
         if not (in_range and ready and (up or down)):
             return
 
-        trend_known = self.valid(self.daily_ema_prev[i], self.daily_close_prev[i])
-        trend_up = trend_known and self.daily_close_prev[i] > self.daily_ema_prev[i]
-        trend_down = trend_known and self.daily_close_prev[i] < self.daily_ema_prev[i]
+        trend_up = self.daily_close_prev[i] > self.daily_ema_prev[i]
+        trend_down = self.daily_close_prev[i] < self.daily_ema_prev[i]
         long_allowed = p["direction"] != "Short only" and (not p["use_trend"] or trend_up)
         short_allowed = p["direction"] != "Long only" and (not p["use_trend"] or trend_down)
 

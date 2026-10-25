@@ -66,7 +66,12 @@ def _run(args: argparse.Namespace) -> int:
     from real_edge_backtest.analysis.metrics import analyze, load_run
     from real_edge_backtest.engine import load_config
     from real_edge_backtest.engine.results import summarize, write_run
-    from real_edge_backtest.runner import run_backtest, run_metadata
+    from real_edge_backtest.runner import (
+        history_warnings,
+        load_candles,
+        run_backtest,
+        run_metadata,
+    )
 
     try:
         config = load_config(args.config)
@@ -75,7 +80,10 @@ def _run(args: argparse.Namespace) -> int:
         window = meta["window"]
         seen = experiments.seen_window(entries, config.strategy, window["start"], window["end"])
         meta["seen_window"] = seen
-        result = run_backtest(config)
+        candles = load_candles(config)
+        meta["first_candle"] = candles["open_time"].iloc[0]
+        meta["warnings"] = history_warnings(candles, window["start"])
+        result = run_backtest(config, candles)
     except (FileNotFoundError, KeyError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
@@ -99,6 +107,8 @@ def _run(args: argparse.Namespace) -> int:
 
     s = summarize(result)
     open_trades = len(result.trades) - s.trades
+    for warning in meta["warnings"]:
+        print(f"WARNING: {warning}")
     print(f"Run {config.name}: {config.symbol} {config.interval}, {config.strategy}")
     print(f"  window          {window['start']} to {window['end']} (candle close, end exclusive)")
     if seen["runs"]:

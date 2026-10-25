@@ -16,6 +16,25 @@ def load_candles(config: RunConfig) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
+MIN_HISTORY = pd.Timedelta(days=30)
+
+
+def history_warnings(candles: pd.DataFrame, start: str) -> list[str]:
+    """Warn when Start leaves less than 30 days of history to settle the indicators."""
+    first = candles["open_time"].iloc[0]
+    begin = pd.Timestamp(start)
+    begin = begin.tz_localize("UTC") if begin.tzinfo is None else begin.tz_convert("UTC")
+    available = int((candles["open_time"] < begin).sum())
+    if begin - first < MIN_HISTORY:
+        return [
+            f"Start {begin:%Y-%m-%d %H:%M} UTC is less than 30 days after the first candle "
+            f"({first:%Y-%m-%d %H:%M} UTC): only {available} candles of history before Start. "
+            "Early indicator values, mainly the EMAs seeded with their first value, are not "
+            "settled."
+        ]
+    return []
+
+
 def run_metadata(config: RunConfig) -> dict:
     """What a report needs to know about a run besides its trades and equity."""
     params = {**STRATEGIES[config.strategy].params, **config.params}
