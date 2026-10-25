@@ -1,0 +1,57 @@
+# Full spot history of "NY 4H Range Re-entry": through-the-range "Treat as opposite breakout",
+# fixed_risk 1%, midnight exit "Close only in loss". Pessimistic fills, 0.05% commission, 2 ticks,
+# 3,000 USD. October 2026 (TradingView tuning) stays out of the window.
+name = "ny_range_full_opposite_risk_loss"
+
+[data]
+symbol = "BTCUSDT"
+interval = "5m"
+data_dir = "data"
+
+[strategy]
+name = "ny_range"
+
+[strategy.params]
+range_session = "0000-0400"
+include_weekends = true
+sl_buffer_pct = 0.1
+rr = 2.0
+tp_mode = "From entry"
+thru_mode = "Treat as opposite breakout"
+thru_factor = 0.5
+midnight_exit = "Close only in loss"
+position_pct = 95
+sizing_slip_ticks = 2
+fee_reserve_pct = 0.05
+# Compared with the candle close time; End is exclusive. Both are NY midnight
+# (EST at the start, EDT at the end): whole NY days from 2018-01-01 to 2026-09-30.
+start = "2018-01-01T05:00:00Z"
+end = "2026-10-01T04:00:00Z"
+
+[sizing]
+mode = "fixed_risk"
+risk_pct = "1"
+
+[broker]
+initial_capital = "3000"
+commission_pct = "0.05"
+slippage_ticks = 2
+tick_size = "0.01"
+lot_size = "0.00001"
+point_value = "1"
+fill_model = "pessimistic"
+
+[gaps]
+min_gap_bars = 3
+
+# Pass criteria, fixed before the run.
+[criteria]
+min_profit_factor = 1.3
+min_trades = 100
+without_top_n = 5
+without_top_pct = 1
+top_n = [1, 3, 5]
+
+[output]
+runs_dir = "runs"
+experiment_log = "experiments/log.jsonl"
