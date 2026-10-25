@@ -5,7 +5,9 @@ blocks a run. It records which windows a strategy family has already been tested
 report can say whether its window is unseen (a soft lockbox).
 
 - family: the strategy name
-- variant: a distinct strategy parameter set, ignoring the window (start, end)
+- variant: a distinct strategy parameter set, ignoring the window (start, end); plug-ins and
+  a timeframe are part of it when set (variant_params), so runs without them keep the hash
+  they always had
 """
 
 import hashlib
@@ -23,6 +25,15 @@ def param_hash(params: dict[str, Any]) -> str:
     core = {k: v for k, v in params.items() if k not in WINDOW_KEYS}
     text = json.dumps(core, sort_keys=True, default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+VARIANT_KEYS = ("timeframe", "filters", "exits")
+
+
+def variant_params(meta: dict[str, Any]) -> dict[str, Any]:
+    """Strategy parameters plus the run's timeframe and plug-ins, where set."""
+    extra = {f"_{key}": meta[key] for key in VARIANT_KEYS if meta.get(key)}
+    return {**meta["params"], **extra}
 
 
 def read_log(path: Path) -> list[dict[str, Any]]:
@@ -51,7 +62,8 @@ def make_entry(meta: dict[str, Any], metrics: dict[str, Any], run_folder: str) -
         "config_sha256": prov.get("config_sha256"),
         "data_sha256": prov.get("data_sha256"),
         "params": meta["params"],
-        "param_hash": param_hash(meta["params"]),
+        "param_hash": param_hash(variant_params(meta)),
+        **{key: meta[key] for key in VARIANT_KEYS if meta.get(key)},
         "window": meta["window"],
         "symbol": meta["symbol"],
         "interval": meta["interval"],

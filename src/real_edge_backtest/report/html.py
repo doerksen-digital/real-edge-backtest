@@ -76,6 +76,14 @@ def _seen_text(seen: dict | None) -> str:
     return describe_seen(seen)
 
 
+def _plugins_text(configs: list[dict] | None) -> str:
+    if not configs:
+        return "none"
+    return "; ".join(
+        c["name"] + "".join(f", {k} {v}" for k, v in c.items() if k != "name") for c in configs
+    )
+
+
 def header(run: Run) -> str:
     m = run.meta
     b, prov = m["broker"], m.get("provenance", {})
@@ -84,7 +92,11 @@ def header(run: Run) -> str:
     dirty = prov.get("dirty")
     rows = [
         ("Strategy", f"{m.get('strategy')} ({m.get('name')})"),
-        ("Market", f"{m.get('symbol')} {m.get('interval')}"),
+        (
+            "Market",
+            f"{m.get('symbol')} {m.get('timeframe') or m.get('interval')}"
+            + (f" (built from {m.get('interval')} candles)" if m.get("timeframe") else ""),
+        ),
         (
             "Window (UTC, candle close time, end exclusive)",
             f"{m['window']['start']} to {m['window']['end']}",
@@ -94,6 +106,8 @@ def header(run: Run) -> str:
         ("Fees", f"{b['commission_pct']}% per side"),
         ("Slippage", f"{b['slippage_ticks']} ticks of {b['tick_size']}"),
         ("Sizing", sizing["mode"] + (f" ({sizing_text})" if sizing_text else "")),
+        ("Entry filters", _plugins_text(m.get("filters"))),
+        ("Exit rules", _plugins_text(m.get("exits"))),
         ("Starting equity", f"{_money(run.initial_capital)} USD"),
         ("Config SHA-256", prov.get("config_sha256", "unknown")),
         ("Git commit", prov.get("commit", "unknown")),

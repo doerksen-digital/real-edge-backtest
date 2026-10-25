@@ -8,6 +8,7 @@ from real_edge_backtest.experiments.log import (
     read_log,
     seen_window,
     variant_count,
+    variant_params,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "read_log",
     "seen_window",
     "variant_count",
+    "variant_params",
 ]

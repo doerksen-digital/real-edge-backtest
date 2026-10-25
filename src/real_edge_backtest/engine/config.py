@@ -46,9 +46,19 @@ class RunConfig:
     runs_dir: Path = Path("runs")
     experiment_log: Path = Path("experiments/log.jsonl")
     criteria: dict[str, Any] = field(default_factory=dict)  # pass criteria, read by the report
+    # [data] timeframe: bars built from the `interval` dataset (e.g. "4h"); "" = interval
+    timeframe: str = ""
+    # [[strategy.filters]] and [[strategy.exits]]: plug-in configs, each with a name
+    filters: list[dict[str, Any]] = field(default_factory=list)
+    exits: list[dict[str, Any]] = field(default_factory=list)
     source_text: str = ""
     # Dotted-key overrides applied on top of source_text (sweeps); empty for a plain run.
     overrides: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def bar_interval(self) -> str:
+        """The interval of the bars the strategy runs on."""
+        return self.timeframe or self.interval
 
     @property
     def fingerprint_text(self) -> str:
@@ -108,6 +118,9 @@ def parse_config(raw: dict[str, Any], text: str, overrides: dict[str, Any]) -> R
         data_dir=Path(data.get("data_dir", "data")),
         strategy=strategy["name"],
         params=dict(strategy.get("params", {})),
+        filters=[dict(f) for f in strategy.get("filters", [])],
+        exits=[dict(e) for e in strategy.get("exits", [])],
+        timeframe=data.get("timeframe", ""),
         broker=BrokerConfig(
             initial_capital=_decimal(broker.get("initial_capital", defaults.initial_capital)),
             commission_pct=_decimal(broker.get("commission_pct", defaults.commission_pct)),

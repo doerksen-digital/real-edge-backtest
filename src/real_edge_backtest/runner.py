@@ -11,6 +11,7 @@ from real_edge_backtest import experiments
 from real_edge_backtest.analysis.metrics import Analysis, analyze, load_run
 from real_edge_backtest.data.intervals import interval_seconds
 from real_edge_backtest.data.paths import parquet_path
+from real_edge_backtest.data.resample import resample_candles
 from real_edge_backtest.engine import Backtest, Result, RunConfig
 from real_edge_backtest.engine.results import write_run
 from real_edge_backtest.holdout import check_holdout
@@ -22,7 +23,10 @@ def load_candles(config: RunConfig) -> pd.DataFrame:
     path = parquet_path(config.data_dir, config.symbol, config.interval)
     if not path.exists():
         raise FileNotFoundError(f"no dataset at {path}, run 'data download' first")
-    return pd.read_parquet(path)
+    candles = pd.read_parquet(path)
+    if config.timeframe and config.timeframe != config.interval:
+        candles = resample_candles(candles, config.interval, config.timeframe)
+    return candles
 
 
 MIN_HISTORY = pd.Timedelta(days=30)
@@ -67,6 +71,9 @@ def run_metadata(config: RunConfig) -> dict:
         },
         "sizing": config.sizing.describe(),
         "criteria": config.criteria,
+        **({"timeframe": config.timeframe} if config.timeframe else {}),
+        **({"filters": config.filters} if config.filters else {}),
+        **({"exits": config.exits} if config.exits else {}),
         **({"overrides": config.overrides} if config.overrides else {}),
         "provenance": {
             **git_state(),
@@ -136,7 +143,9 @@ def run_backtest(
         STRATEGIES[config.strategy],
         config.broker,
         config.params,
-        interval=pd.Timedelta(seconds=interval_seconds(config.interval)),
+        interval=pd.Timedelta(seconds=interval_seconds(config.bar_interval)),
         min_gap_bars=config.min_gap_bars,
         sizing=config.sizing,
+        filters=config.filters,
+        exits=config.exits,
     ).run()

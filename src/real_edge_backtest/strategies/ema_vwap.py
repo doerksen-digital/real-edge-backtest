@@ -13,6 +13,9 @@ After a gap of at least min_gap_bars missing candles (Backtest setting), crosses
 entirely until max(vwap_bars, atr_length, ema_length) contiguous candles exist again, so no
 entry uses a VWAP window that spans the gap. An open trade keeps its stop meanwhile.
 
+Optional plug-ins (strategies.plugins): entry filters act where the trend filter acts and may
+defer an entry; exit rules run at each close with an open trade. Without them nothing changes.
+
 Entry features (trades_enriched.csv, entry bar i, nothing after i):
 - atr_pct: ATR / close
 - dist_daily_ema_atr: (close - previous day's daily EMA) / ATR
@@ -25,6 +28,7 @@ Entry features (trades_enriched.csv, entry bar i, nothing after i):
 Windows count bars, like the indicators; a value is na until the window has enough bars.
 """
 
+from dataclasses import dataclass
 from decimal import Decimal
 
 import numpy as np
@@ -34,8 +38,19 @@ from real_edge_backtest.data.daily import daily_candles, previous_day_values
 from real_edge_backtest.engine.sizing import size
 from real_edge_backtest.engine.strategy import Strategy
 from real_edge_backtest.indicators import atr, crossover, crossunder, ema, pine_round, rolling_vwap
+from real_edge_backtest.strategies.plugins import ALLOW, CANCEL, Defer
 
 LONG, SHORT = 1, -1
+
+
+@dataclass(frozen=True)
+class Pending:
+    """A signal an entry filter deferred: side, filter index, bar of the cross, bars allowed."""
+
+    side: int
+    filter: int
+    bar: int
+    bars: int
 
 
 def _utc(value: str) -> pd.Timestamp:
@@ -90,6 +105,10 @@ class EmaVwap(Strategy):
         self.min_contiguous = max(p["vwap_bars"], p["atr_length"], p["ema_length"])
         self.counters["ignored_after_gap"] = 0
         self.counters["sizing_capped"] = 0
+        self.counters["deferred"] = 0
+        self.counters["deferred_entered"] = 0
+        self.counters["deferred_cancelled"] = 0
+        self.pending: Pending | None = None
         if self.sizing.mode == "fixed_risk" and p["stop_atr"] <= 0:
             raise ValueError("fixed_risk sizing needs the ATR stop (stop_atr > 0)")
 
@@ -140,16 +159,23 @@ class EmaVwap(Strategy):
             self.counters["sizing_capped"] += 1
 
     def next(self) -> None:
-        i, p, broker = self.i, self.p, self.broker
+        i, broker = self.i, self.broker
         time_close = self.time_close_list[i]
         in_range = self.start <= time_close < self.end
 
         if time_close >= self.end:
+            self.pending = None
             if broker.position != 0:
                 broker.cancel("L-Stop")
                 broker.cancel("S-Stop")
                 broker.close("Test end")
             return
+
+        if in_range and self.exits and broker.open_trade is not None:
+            for rule in self.exits:
+                rule.on_bar(self, i, broker.open_trade)
+                if broker.open_trade is None:
+                    break
 
         # No trade until every indicator, including the previous day's daily values, exists.
         ready = (
@@ -163,18 +189,77 @@ class EmaVwap(Strategy):
             and self.atr[i] > 0
         )
         up, down = bool(self.cross_up[i]), bool(self.cross_down[i])
+        gap_block = self.contiguous_bars[i] < self.min_contiguous
+        if self.pending is not None:
+            self._resolve_pending(i, up, down, not (in_range and ready) or gap_block)
         if not (in_range and ready and (up or down)):
             return
-        if self.contiguous_bars[i] < self.min_contiguous:
+        if gap_block:
             self.counters["ignored_after_gap"] += 1
             return
+        self._signal(i, LONG if up else SHORT)
 
+    def _signal(self, i: int, side: int) -> None:
+        """A cross at the close of bar i: enter, defer, or only close the opposite position."""
+        p = self.p
         trend_up = self.daily_close_prev[i] > self.daily_ema_prev[i]
         trend_down = self.daily_close_prev[i] < self.daily_ema_prev[i]
-        long_allowed = p["direction"] != "Short only" and (not p["use_trend"] or trend_up)
-        short_allowed = p["direction"] != "Long only" and (not p["use_trend"] or trend_down)
+        if side == LONG:
+            allowed = p["direction"] != "Short only" and (not p["use_trend"] or trend_up)
+        else:
+            allowed = p["direction"] != "Long only" and (not p["use_trend"] or trend_down)
+        decision = self._run_filters(0, i, side) if allowed else CANCEL
+        if decision == ALLOW and self._enter(i, side):
+            return
+        broker = self.broker
+        if side == LONG and broker.position < 0:
+            broker.cancel("S-Stop")
+            broker.close("Cross up, exit only")
+        elif side == SHORT and broker.position > 0:
+            broker.cancel("L-Stop")
+            broker.close("Cross down, exit only")
 
-        side = LONG if up else SHORT
+    def _run_filters(self, first: int, i: int, side: int) -> str:
+        """Ask the entry filters from index `first` on. A deferral becomes the pending signal."""
+        for k in range(first, len(self.filters)):
+            f = self.filters[k]
+            answer = f.on_signal(self, i, side)
+            if answer == ALLOW:
+                continue
+            if isinstance(answer, Defer):
+                if not 1 <= answer.bars <= f.max_defer:
+                    raise ValueError(
+                        f"plug-in {f.name!r} deferred {answer.bars} bars, allowed 1 to "
+                        f"{f.max_defer}"
+                    )
+                self.pending = Pending(side, k, i, answer.bars)
+                self.counters["deferred"] += 1
+            return CANCEL
+        return ALLOW
+
+    def _resolve_pending(self, i: int, up: bool, down: bool, blocked: bool) -> None:
+        """Re-check a deferred signal at the close of bar i (see strategies.plugins)."""
+        pending = self.pending
+        if (pending.side == LONG and down) or (pending.side == SHORT and up) or blocked:
+            self.pending = None
+            self.counters["deferred_cancelled"] += 1
+            return
+        waited = i - pending.bar
+        answer = self.filters[pending.filter].on_pending(self, i, pending.side, waited)
+        if answer == ALLOW:
+            self.pending = None
+            if self._run_filters(pending.filter + 1, i, pending.side) == ALLOW and self._enter(
+                i, pending.side
+            ):
+                self.counters["deferred_entered"] += 1
+            return
+        if answer == CANCEL or waited >= pending.bars:
+            self.pending = None
+            self.counters["deferred_cancelled"] += 1
+
+    def _enter(self, i: int, side: int) -> bool:
+        """Market entry at the close of bar i with the ATR stop. False if the size is 0 lots."""
+        p, broker = self.p, self.broker
         cfg = broker.config
         expected_fill = (broker.bar.close + side * p["sizing_slip_ticks"]) * cfg.tick_size
         stop_ticks = int(max(1, pine_round(p["stop_atr"] * self.atr[i] / self.mintick)))
@@ -188,24 +273,12 @@ class EmaVwap(Strategy):
             cfg.lot_size,
             stop_ticks * cfg.tick_size if p["stop_atr"] > 0 else Decimal(0),
         )
-
-        if up:
-            if long_allowed and lots > 0:
-                broker.cancel("S-Stop")
-                broker.entry(LONG, lots, "EMA above VWAP")
-                self._mark_capped(capped)
-                if p["stop_atr"] > 0:
-                    broker.exit_stop("L-Stop", stop_ticks, "ATR stop")
-            elif broker.position < 0:
-                broker.cancel("S-Stop")
-                broker.close("Cross up, exit only")
-        else:
-            if short_allowed and lots > 0:
-                broker.cancel("L-Stop")
-                broker.entry(SHORT, lots, "EMA below VWAP")
-                self._mark_capped(capped)
-                if p["stop_atr"] > 0:
-                    broker.exit_stop("S-Stop", stop_ticks, "ATR stop")
-            elif broker.position > 0:
-                broker.cancel("L-Stop")
-                broker.close("Cross down, exit only")
+        if lots <= 0:
+            return False
+        own, opposite = ("L-Stop", "S-Stop") if side == LONG else ("S-Stop", "L-Stop")
+        broker.cancel(opposite)
+        broker.entry(side, lots, "EMA above VWAP" if side == LONG else "EMA below VWAP")
+        self._mark_capped(capped)
+        if p["stop_atr"] > 0:
+            broker.exit_stop(own, stop_ticks, "ATR stop")
+        return True

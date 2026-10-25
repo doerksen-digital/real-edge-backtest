@@ -18,6 +18,8 @@ from real_edge_backtest.engine.sizing import SizingConfig
 class Strategy:
     params: dict[str, Any] = {}
     sizing: SizingConfig = SizingConfig()  # set per run by Backtest
+    filters: list = []  # entry filter plug-ins, set per run by Backtest
+    exits: list = []  # exit rule plug-ins, set per run by Backtest
 
     def __init__(self, data: pd.DataFrame, broker: Broker, params: dict[str, Any]) -> None:
         unknown = set(params) - set(self.params)

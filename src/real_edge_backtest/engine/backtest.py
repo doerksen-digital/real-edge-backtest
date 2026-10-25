@@ -24,6 +24,7 @@ from real_edge_backtest.engine.config import BrokerConfig
 from real_edge_backtest.engine.fills import Bar
 from real_edge_backtest.engine.sizing import SizingConfig
 from real_edge_backtest.engine.strategy import Strategy
+from real_edge_backtest.strategies.plugins import build_exits, build_filters
 
 ONE_HOUR = pd.Timedelta(hours=1)
 
@@ -145,6 +146,8 @@ class Backtest:
         interval: pd.Timedelta = ONE_HOUR,
         min_gap_bars: int = 3,
         sizing: SizingConfig | None = None,
+        filters: list[dict] | None = None,
+        exits: list[dict] | None = None,
     ) -> None:
         if min_gap_bars < 1:
             raise ValueError("min_gap_bars must be at least 1")
@@ -155,6 +158,8 @@ class Backtest:
         )
         self.min_gap_bars = min_gap_bars
         self.sizing = sizing or SizingConfig()
+        self.filter_configs = list(filters or [])
+        self.exit_configs = list(exits or [])
         self.data = data
         self.strategy_cls = strategy_cls
         self.broker_config = broker
@@ -171,7 +176,12 @@ class Backtest:
         broker = Broker(self.broker_config)
         strategy = self.strategy_cls(self.data, broker, self.params)
         strategy.sizing = self.sizing
+        # Fresh plug-in objects per run; built before init so errors come first.
+        strategy.filters = build_filters(self.filter_configs)
+        strategy.exits = build_exits(self.exit_configs)
         strategy.init()
+        for plugin in [*strategy.filters, *strategy.exits]:
+            plugin.init(strategy)
 
         equity, positions = [], []
         for i in range(len(self.data)):

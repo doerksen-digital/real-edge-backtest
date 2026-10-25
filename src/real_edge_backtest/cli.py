@@ -107,7 +107,11 @@ def _run(args: argparse.Namespace) -> int:
         print(f"HOLDOUT RUN: {config.symbol} is holdout data (research protocol, docs/PLAN.md)")
     for warning in meta["warnings"]:
         print(f"WARNING: {warning}")
-    print(f"Run {config.name}: {config.symbol} {config.interval}, {config.strategy}")
+    bars = config.bar_interval + (f" from {config.interval}" if config.timeframe else "")
+    print(f"Run {config.name}: {config.symbol} {bars}, {config.strategy}")
+    if config.filters or config.exits:
+        names = [p["name"] for p in [*config.filters, *config.exits]]
+        print(f"  plug-ins        {', '.join(names)}")
     print(f"  window          {window['start']} to {window['end']} (candle close, end exclusive)")
     print(f"  seen window     {experiments.describe_seen(seen)}")
     print(f"  variants        {variants} parameter sets of {config.strategy} logged so far")

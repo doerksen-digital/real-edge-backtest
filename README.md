@@ -125,6 +125,23 @@ Gaps are exchange downtime. They are never filled.
 - The best and worst 1% of trades by percent return (net PnL over equity at entry).
 - Gap sensitivity, the trade list and, with the `report` extra, a separate "period-based metrics (QuantStats)" section on daily window returns.
 
+### Plug-ins and timeframes
+
+Entry filters and extra exit rules are optional named plug-ins with parameters, configured per run:
+
+```toml
+[[strategy.filters]]
+name = "<filter>"
+# parameters of the filter
+
+[[strategy.exits]]
+name = "<exit rule>"
+```
+
+Without plug-ins a run is unchanged. Entry filters act where the daily trend filter acts: they can allow a cross, cancel it (an opposite position is still closed, like a blocked cross) or defer it for a limited number of bars. A deferred entry is decided at a later close and then filled at that close, sized and stopped there; a cross in the opposite direction cancels it. Exit rules run at each close with an open trade and can close it or tighten its stop. Concrete plug-ins are added together with the hypothesis that defines them ([docs/research/hypotheses.md](docs/research/hypotheses.md)).
+
+`timeframe = "4h"` in `[data]` runs the strategy on candles built from the `interval` dataset: buckets aligned to UTC epoch multiples, OHLCV from the source candles that exist in the bucket, a bucket without any source candle is a gap. Indicator lengths stay in bars of the timeframe. Plug-ins and a timeframe are recorded in `run.json`, the report header and the experiment log, and they are part of the variant.
+
 ### Enriched trades
 
 Every run also writes `trades_enriched.csv`, one row per trade:

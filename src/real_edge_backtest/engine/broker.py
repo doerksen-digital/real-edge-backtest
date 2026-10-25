@@ -154,6 +154,19 @@ class Broker:
         level = trade.entry_price - trade.side * ticks
         self.orders[order_id] = PriceOrder(order_id, "stop", -trade.side, level, comment)
 
+    def move_stop(self, order_id: str, level: int, comment: str = "Trailing stop") -> None:
+        """Set a stop exit of the open trade to `level` (ticks), only if that tightens it: a
+        long's stop can only rise, a short's only fall. Without such an order, one is placed."""
+        trade = self.open_trade
+        if trade is None:
+            return
+        order = self.orders.get(order_id)
+        if order is None:
+            self.orders[order_id] = PriceOrder(order_id, "stop", -trade.side, level, comment)
+        elif (level - order.level) * trade.side > 0:
+            order.level = level
+            order.comment = comment
+
     def cancel(self, order_id: str) -> None:
         self.orders.pop(order_id, None)
 
