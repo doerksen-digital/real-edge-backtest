@@ -6,7 +6,8 @@ equity.csv is never used directly.
 
 Definitions:
 - closed trades only; profit factor = sum of winning net PnL / -sum of losing net PnL
-- a trade belongs to the calendar year (UTC) and half of the window in which it exits
+- a trade belongs to the calendar year (UTC) and half of the window in which it exits; a bar
+  belongs to the year of its open time
 - time in market = share of window bars entered with an open position
 - max drawdown = largest peak-to-trough fall, in money and in percent of the peak; the
   starting capital is the first peak
@@ -127,7 +128,7 @@ def pnl_without_top(trades: pd.DataFrame, n: int) -> float:
 def by_year(trades: pd.DataFrame, window: pd.DataFrame, initial_capital: float) -> pd.DataFrame:
     """Trade stats per exit year plus the equity return of each calendar year in the window."""
     t = closed(trades)
-    years = window["time_close"].dt.year
+    years = window["open_time"].dt.year  # the year a bar belongs to, like trade exits
     rows = []
     previous = initial_capital
     for year in sorted(years.unique()):
@@ -191,7 +192,7 @@ def buy_and_hold(window: pd.DataFrame, broker: dict[str, Any]) -> dict[str, Any]
     exit_price = price(window["close"].iloc[-1]) - slip
     final = cash + qty * exit_price * (1 - rate)
     curve[-1] = float(final)
-    curve = pd.Series(curve, index=window["time_close"])
+    curve = pd.Series(curve, index=window["open_time"])
     dd, dd_pct = max_drawdown(curve, float(capital))
     return {
         "lots": lots,

@@ -94,8 +94,9 @@ def test_drawdown_counts_from_starting_capital():
 def test_by_year():
     window = pd.DataFrame(
         {
-            "time_close": pd.to_datetime(
-                ["2024-06-01", "2024-12-31", "2025-06-01", "2025-12-31"], utc=True
+            "open_time": pd.to_datetime(
+                ["2024-06-01 00:00", "2024-12-31 23:00", "2025-06-01 00:00", "2025-12-31 23:00"],
+                utc=True,
             ),
             "equity": [1020.0, 1050.0, 1100.0, 1260.0],
         }
