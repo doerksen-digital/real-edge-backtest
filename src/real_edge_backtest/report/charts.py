@@ -85,6 +85,30 @@ def yearly_chart(years: list[int], strategy: list[float], benchmark: list[float]
     return _svg(fig, "yearly")
 
 
+def rolling_chart(time: pd.Series, profit_factor: pd.Series, returns: pd.Series) -> str:
+    """Trailing 12-month PF (top, infinite values drawn at the top of the axis) and return."""
+    fig = Figure(figsize=(9, 4.6))
+    top, bottom = fig.subplots(2, 1, sharex=True)
+    for ax in (top, bottom):
+        ax.grid(True, alpha=0.3)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    finite = profit_factor.replace([float("inf")], float("nan"))
+    top.plot(time, finite, color=STRATEGY, linewidth=1)
+    top.axhline(1.0, color="black", linewidth=0.6)
+    top.axhline(1.3, color=BENCHMARK, linewidth=0.6, linestyle="--")
+    top.set_ylabel("PF, 12 months")
+    bottom.bar(
+        time,
+        returns * 100,
+        width=20,
+        color=[STRATEGY if r >= 0 else NEGATIVE for r in returns],
+    )
+    bottom.axhline(0, color="black", linewidth=0.6)
+    bottom.set_ylabel("Return %, 12 months")
+    return _svg(fig, "rolling")
+
+
 def comparison_chart(time: pd.Series, strategy: pd.Series, benchmark: pd.Series) -> str:
     fig, ax = _figure()
     ax.plot(time, strategy, color=STRATEGY, linewidth=1, label="Strategy")

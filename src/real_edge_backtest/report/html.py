@@ -22,6 +22,7 @@ body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: 
   background: #fff; margin: 0 auto; max-width: 1040px; padding: 24px 16px 64px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
 h2 { font-size: 17px; margin: 36px 0 10px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+h3 { font-size: 15px; margin: 16px 0 6px; }
 p.note { color: #555; margin: 4px 0 12px; }
 table { border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
 th, td { padding: 3px 10px; border-bottom: 1px solid #eee; text-align: right; }
@@ -162,6 +163,116 @@ def metric_rows(a: Analysis) -> list[tuple[str, str]]:
     return rows
 
 
+def cost_rows(a: Analysis) -> list[tuple[str, str]]:
+    c = a.costs
+    return [
+        ("Profit factor (net)", _pf(a.stats["profit_factor"])),
+        ("Profit factor before fees (gross)", _pf(c["profit_factor_before_fees"])),
+        ("Profit factor before fees and slippage", _pf(c["profit_factor_before_costs"])),
+        ("Gross PnL (after slippage, before fees)", _money(c["gross_pnl"])),
+        ("Fees paid", _money(c["fees"])),
+        ("Slippage paid", _money(c["slippage"])),
+        ("Net PnL", _money(a.stats["net_pnl"])),
+    ]
+
+
+def costs(a: Analysis) -> str:
+    years = [
+        [
+            int(r.year),
+            int(r.trades),
+            _pct_or_blank(r.atr_pct),
+            _pct_or_blank(r.abs_move_pct),
+            _pct_or_blank(r.move_pct),
+            _money_or_blank(r.fee),
+            _pct_or_blank(r.fee_pct, 4),
+            _pct_or_blank(r.slippage_pct, 4),
+            _money(r.fees),
+            _money(r.slippage),
+        ]
+        for r in a.year_costs.itertuples()
+    ]
+    return (
+        "<h2>Costs</h2>"
+        + '<p class="note">Fill prices include slippage, so gross PnL is after slippage and '
+        "before fees. Slippage paid = 2 fills x slippage ticks x tick x quantity.</p>"
+        + _kv(cost_rows(a))
+        + "<h2>Costs and moves per year</h2>"
+        + '<p class="note">ATR % = average ATR as % of the close over the window bars of the '
+        "year. Per trade, by exit year: gross move = price move between the unslipped entry "
+        "and exit prices in % of the entry, absolute and signed by side; round-trip fee and "
+        "slippage in % of the entry notional.</p>"
+        + _table(
+            [
+                "Year",
+                "Trades",
+                "ATR % of price",
+                "Avg abs gross move",
+                "Avg gross move",
+                "Avg round-trip fee",
+                "Fee % of notional",
+                "Slippage % of notional",
+                "Fees",
+                "Slippage",
+            ],
+            years,
+        )
+    )
+
+
+def _pct_or_blank(value: float, places: int = 2) -> str:
+    return "" if pd.isna(value) else f"{value:.{places}%}"
+
+
+def _money_or_blank(value: float) -> str:
+    return "" if pd.isna(value) else _money(value)
+
+
+def sides(a: Analysis) -> str:
+    rows = [
+        [
+            int(r.year),
+            _e(r.side),
+            int(r.trades),
+            _money(r.net_pnl),
+            _pf(r.profit_factor) if r.trades else "",
+            _pct(r.win_rate) if r.trades else "",
+        ]
+        for r in a.years_side.itertuples()
+    ]
+    return "<h2>Per year by side (UTC, by exit)</h2>" + _table(
+        ["Year", "Side", "Trades", "Net PnL", "PF", "Win rate"], rows
+    )
+
+
+def tails(a: Analysis) -> str:
+    def rows(t: pd.DataFrame) -> list[list[str]]:
+        return [
+            [
+                int(r.number),
+                _e(r.side),
+                f"{r.entry_time:%Y-%m-%d %H:%M}",
+                f"{r.exit_time:%Y-%m-%d %H:%M}",
+                _e(r.exit_comment),
+                _pct(r["return"]),
+                _money(r.net_pnl),
+            ]
+            for _, r in t.iterrows()
+        ]
+
+    headers = ["#", "Side", "Entry", "Exit", "Exit reason", "Return", "Net PnL"]
+    n = len(a.best)
+    return (
+        f"<h2>Best and worst {n} trades by percent return</h2>"
+        '<p class="note">Percent return = net PnL over equity at entry (the return method). '
+        f"{n} trades = the top {a.without_top_pct[0]:g}% of closed trades, rounded up.</p>"
+        "<h3>Best</h3>"
+        + _table(headers, rows(a.best))
+        + "<h3>Worst</h3>"
+        + _table(headers, rows(a.worst))
+    )
+
+
 def trade_metrics(a: Analysis) -> str:
     bh = a.buy_and_hold
     bh_rows = [
@@ -220,6 +331,14 @@ def chart_section(a: Analysis, run: Run) -> str:
             ),
         ),
     ]
+    if len(a.rolling):
+        r = a.rolling
+        parts.append(
+            (
+                "Rolling 12 months",
+                charts.rolling_chart(r["time"], r["profit_factor"], r["return"]),
+            )
+        )
     return "".join(f'<h2>{_e(t)}</h2><div class="chart">{svg}</div>' for t, svg in parts)
 
 
@@ -342,8 +461,11 @@ def render(run: Run) -> str:
             header(run),
             pass_block(a),
             trade_metrics(a),
+            costs(a),
             chart_section(a, run),
             periods(a),
+            sides(a),
+            tails(a),
             gap_section(run, a),
             quantstats_section(a),
             trade_list(run),

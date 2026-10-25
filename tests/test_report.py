@@ -50,12 +50,17 @@ def test_report_is_self_contained_and_complete(run_folder):
         "Return per year",
         "Strategy vs buy and hold",
         "Per year",
+        "Costs",
+        "Costs and moves per year",
+        "Per year by side",
+        "Best and worst",
         "Halves of the window",
         "Gap sensitivity",
         "Trades (times are candle open, UTC)",
     ):
         assert f"<h2>{section}" in text, section
-    assert text.count("<svg") == 4
+    assert text.count("<svg") == 4  # no rolling 12-month chart: the window is 48 days
+    assert "Profit factor before fees (gross)" in text
     assert "<script" not in text
     # No external assets: nothing loaded by src, href or CSS url().
     assert not re.search(r'(?:src|href)\s*=\s*["\']?https?:', text)

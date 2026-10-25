@@ -15,6 +15,15 @@ Definitions:
   the starting capital. The USD method (subtracting the best trades' USD PnL) is reported
   too, but under percent_equity sizing later trades are larger in USD only because equity
   grew, so it is distorted by compounding.
+- costs: fees are the commission column. Fill prices already include slippage, so gross_pnl
+  is after slippage and before fees; slippage per closed trade = 2 fills x slippage_ticks x
+  tick x qty x point value. "Gross move" is the price move between the unslipped entry and
+  exit prices, signed by side, in % of the unslipped entry price; fee, slippage and
+  round-trip cost % are over the entry notional
+- percent return of a trade = trade_returns (net return on equity at entry); the best and
+  worst 1% of trades are ranked by it
+- rolling 12 months: at each month start, PF of the trades that exited in the 12 months
+  before it and the window-equity return over the same 12 months
 - max drawdown = largest peak-to-trough fall, in money and in percent of the peak; the
   starting capital is the first peak
 - buy and hold: one buy at the first window bar's open plus slippage, as many lots as the
@@ -132,12 +141,27 @@ def pnl_without_top(trades: pd.DataFrame, n: int) -> float:
     return float(pnl.sum() - top.sum())
 
 
-def trade_returns(trades: pd.DataFrame, initial: float) -> pd.Series:
-    """Net return of each closed trade on equity at its entry, in entry order. Positions never
-    overlap, so equity at entry = starting capital + net PnL of all earlier trades."""
-    t = closed(trades).sort_values("entry_time")
+def with_returns(trades: pd.DataFrame, initial: float) -> pd.DataFrame:
+    """Closed trades in entry order with a return column: net PnL over equity at entry.
+    Positions never overlap, so equity at entry = starting capital + net PnL of all earlier
+    trades."""
+    t = closed(trades).sort_values("entry_time").reset_index(drop=True)
     equity_at_entry = initial + t["net_pnl"].cumsum().shift(1, fill_value=0.0)
-    return (t["net_pnl"] / equity_at_entry).reset_index(drop=True)
+    return t.assign(**{"return": t["net_pnl"] / equity_at_entry})
+
+
+def trade_returns(trades: pd.DataFrame, initial: float) -> pd.Series:
+    """Net return of each closed trade on equity at its entry, in entry order."""
+    return with_returns(trades, initial)["return"]
+
+
+def tail_trades(
+    trades: pd.DataFrame, initial: float, pct: float
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Best and worst pct percent of closed trades (count rounded up) by percent return."""
+    t = with_returns(trades, initial)
+    n = top_pct_count(len(t), pct)
+    return t.nlargest(n, "return"), t.nsmallest(n, "return")
 
 
 def compounded_without_top(returns: pd.Series, initial: float, n: int) -> float:
@@ -164,6 +188,118 @@ def by_year(trades: pd.DataFrame, window: pd.DataFrame, initial_capital: float) 
         rows.append({"year": int(year), **stats, "return": last / previous - 1})
         previous = last
     return pd.DataFrame(rows)
+
+
+def by_year_side(trades: pd.DataFrame) -> pd.DataFrame:
+    """Trade stats per exit year and side."""
+    t = closed(trades)
+    rows = []
+    for year in sorted(t["exit_time"].dt.year.unique()):
+        for side in ("long", "short"):
+            part = t[(t["exit_time"].dt.year == year) & (t["side"] == side)]
+            rows.append({"year": int(year), "side": side, **trade_stats(part)})
+    return pd.DataFrame(rows)
+
+
+def slippage_cost(trades: pd.DataFrame, broker: dict[str, Any]) -> pd.Series:
+    """Slippage paid per trade in money: two fills of slippage_ticks ticks each."""
+    per_unit = broker["slippage_ticks"] * float(broker["tick_size"]) * float(broker["point_value"])
+    return 2 * per_unit * trades["qty"]
+
+
+def _profit_factor(pnl: pd.Series) -> float:
+    gross_loss = -pnl[pnl < 0].sum()
+    return float(pnl[pnl > 0].sum() / gross_loss) if gross_loss else math.inf
+
+
+def cost_stats(trades: pd.DataFrame, broker: dict[str, Any]) -> dict[str, float]:
+    """Profit factor before fees and before fees and slippage, and the costs paid."""
+    t = closed(trades)
+    slip = slippage_cost(t, broker)
+    gross = t["gross_pnl"]
+    return {
+        "profit_factor_before_fees": _profit_factor(gross),
+        "profit_factor_before_costs": _profit_factor(gross + slip),
+        "fees": float(t["commission"].sum()),
+        "slippage": float(slip.sum()),
+        "gross_pnl": float(gross.sum()),
+        "gross_pnl_before_costs": float((gross + slip).sum()),
+    }
+
+
+def trade_moves(trades: pd.DataFrame, broker: dict[str, Any]) -> pd.DataFrame:
+    """Closed trades with the gross move (unslipped prices, signed by side, fraction of the
+    entry price), the entry notional, and fee, slippage and round-trip cost as fractions of
+    the entry notional."""
+    t = closed(trades)
+    slip = broker["slippage_ticks"] * float(broker["tick_size"])
+    side = t["side"].map({"long": 1, "short": -1})
+    entry = t["entry_price"] - side * slip
+    exit_ = t["exit_price"] + side * slip
+    notional = t["qty"] * t["entry_price"] * float(broker["point_value"])
+    slippage = slippage_cost(t, broker)
+    return t.assign(
+        move_pct=side * (exit_ - entry) / entry,
+        notional=notional,
+        fee_pct=t["commission"] / notional,
+        slippage_pct=slippage / notional,
+        cost_pct=(t["commission"] + slippage) / notional,
+    )
+
+
+def _mean(values: pd.Series) -> float:
+    return float(values.mean()) if len(values) else math.nan
+
+
+def year_costs(trades: pd.DataFrame, window: pd.DataFrame, broker: dict[str, Any]) -> pd.DataFrame:
+    """Per calendar year: average ATR as a fraction of the close over the window bars (if
+    equity.csv has an atr column), and per trade (by exit year) the average gross move,
+    round-trip fee and slippage."""
+    moves = trade_moves(trades, broker)
+    exit_year = moves["exit_time"].dt.year
+    bar_year = window["open_time"].dt.year
+    atr_pct = window["atr"] / window["close"] if "atr" in window else None
+    rows = []
+    for year in sorted(set(bar_year.unique()) | set(exit_year.unique())):
+        m = moves[exit_year == year]
+        rows.append(
+            {
+                "year": int(year),
+                "atr_pct": math.nan if atr_pct is None else _mean(atr_pct[bar_year == year]),
+                "trades": int(len(m)),
+                "abs_move_pct": _mean(m["move_pct"].abs()),
+                "move_pct": _mean(m["move_pct"]),
+                "fee": _mean(m["commission"]),
+                "fee_pct": _mean(m["fee_pct"]),
+                "slippage_pct": _mean(m["slippage_pct"]),
+                "fees": float(m["commission"].sum()),
+                "slippage": float(slippage_cost(m, broker).sum()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def rolling_12m(trades: pd.DataFrame, window: pd.DataFrame) -> pd.DataFrame:
+    """At each month start with 12 full months of window behind it: PF of the trades that
+    exited in those 12 months and the window-equity return over them."""
+    t = closed(trades)
+    equity = window.set_index("time_close")["equity"]
+    first, last = equity.index[0], equity.index[-1]
+    rows = []
+    for point in pd.date_range(first + pd.DateOffset(months=12), last, freq="MS"):
+        begin = point - pd.DateOffset(months=12)
+        part = t[(t["exit_time"] >= begin) & (t["exit_time"] < point)]
+        now = float(equity[equity.index <= point].iloc[-1])
+        then = float(equity[equity.index <= begin].iloc[-1])
+        rows.append(
+            {
+                "time": point,
+                "trades": int(len(part)),
+                "profit_factor": _profit_factor(part["net_pnl"]) if len(part) else math.nan,
+                "return": now / then - 1,
+            }
+        )
+    return pd.DataFrame(rows, columns=["time", "trades", "profit_factor", "return"])
 
 
 def halves(trades: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> list[dict]:
@@ -261,6 +397,12 @@ class Analysis:
     closed_drawdown: tuple[float, float]
     total_return: float
     buy_and_hold: dict[str, Any]
+    costs: dict[str, float] = field(default_factory=dict)
+    years_side: pd.DataFrame | None = None
+    year_costs: pd.DataFrame | None = None
+    best: pd.DataFrame | None = None  # best without_top_pct % of trades by percent return
+    worst: pd.DataFrame | None = None
+    rolling: pd.DataFrame | None = None
     checks: list[Check] = field(default_factory=list)
 
     @property
@@ -289,7 +431,9 @@ def analyze(run: Run, trades: pd.DataFrame | None = None) -> Analysis:
         compounded_without_top(returns, capital, removed),
     )
     two = halves(trades, run.start, run.end)
-    bh = buy_and_hold(window, run.meta["broker"])
+    broker = run.meta["broker"]
+    bh = buy_and_hold(window, broker)
+    best, worst = tail_trades(trades, capital, criteria.without_top_pct)
     analysis = Analysis(
         window=window,
         stats=stats,
@@ -304,6 +448,12 @@ def analyze(run: Run, trades: pd.DataFrame | None = None) -> Analysis:
         closed_drawdown=max_drawdown(closed_trade_equity(trades, capital), capital),
         total_return=float(window["equity"].iloc[-1]) / capital - 1,
         buy_and_hold=bh,
+        costs=cost_stats(trades, broker),
+        years_side=by_year_side(trades),
+        year_costs=year_costs(trades, window, broker),
+        best=best,
+        worst=worst,
+        rolling=rolling_12m(trades, window),
     )
     analysis.checks = checks(analysis, criteria)
     return analysis

@@ -16,6 +16,7 @@ entry uses a VWAP window that spans the gap. An open trade keeps its stop meanwh
 
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 
 from real_edge_backtest.data.daily import daily_candles, previous_day_values
@@ -79,6 +80,9 @@ class EmaVwap(Strategy):
         self.counters["sizing_capped"] = 0
         if self.sizing.mode == "fixed_risk" and p["stop_atr"] <= 0:
             raise ValueError("fixed_risk sizing needs the ATR stop (stop_atr > 0)")
+
+    def bar_columns(self) -> dict[str, np.ndarray]:
+        return {"atr": self.atr}
 
     def _mark_capped(self, capped: bool) -> None:
         if capped and self.broker.open_trade is not None:

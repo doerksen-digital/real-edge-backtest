@@ -31,7 +31,9 @@ ONE_HOUR = pd.Timedelta(hours=1)
 @dataclass
 class Result:
     trades: list[Trade]
-    equity: pd.DataFrame  # open_time, time_close, open, close, position (lots), equity (Decimal)
+    # open_time, time_close, open, close, position (lots), equity (Decimal), then the
+    # strategy's bar_columns (e.g. atr)
+    equity: pd.DataFrame
     broker: BrokerConfig
     missing_before: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     min_gap_bars: int = 3
@@ -139,6 +141,7 @@ class Backtest:
                     "close": self.data["close"],
                     "position": positions,
                     "equity": equity,
+                    **strategy.bar_columns(),
                 }
             ),
             broker=self.broker_config,

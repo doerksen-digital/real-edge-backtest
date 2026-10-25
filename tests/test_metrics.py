@@ -12,17 +12,24 @@ from real_edge_backtest.analysis.metrics import (
     analyze,
     buy_and_hold,
     by_year,
+    by_year_side,
     closed_trade_equity,
     compounded_without_top,
+    cost_stats,
     halves,
     load_run,
     max_drawdown,
     pnl_without_top,
+    rolling_12m,
+    slippage_cost,
+    tail_trades,
     time_in_market,
     top_pct_count,
+    trade_moves,
     trade_returns,
     trade_stats,
     window_equity,
+    year_costs,
 )
 from real_edge_backtest.engine import Backtest, BrokerConfig
 from real_edge_backtest.engine.results import summarize, write_run
@@ -39,6 +46,13 @@ def trades(pnls, exits) -> pd.DataFrame:
             "entry_time": exit_times - pd.Timedelta(hours=5),
             "exit_time": exit_times,
             "net_pnl": [float(p) for p in pnls],
+            # Cost columns default to a fee-free long; the cost tests set their own.
+            "side": "long",
+            "gross_pnl": [float(p) for p in pnls],
+            "commission": 0.0,
+            "qty": 1.0,
+            "entry_price": 100.0,
+            "exit_price": 100.0,
         }
     )
 
@@ -324,3 +338,91 @@ def test_metrics_read_a_written_run_folder(tmp_path):
     assert a.stats["trades"] == s.trades > 0
     assert a.stats["net_pnl"] == pytest.approx(float(s.net_pnl))
     assert a.stats["profit_factor"] == pytest.approx(s.profit_factor)
+
+
+# Costs, sides, tails and rolling windows ----------------------------------------------------
+# Slippage 2 ticks of 0.01, point value 1: each trade pays 2 fills x 0.02 x qty.
+COST_BROKER = {**BROKER, "slippage_ticks": 2}
+
+
+def cost_trades() -> pd.DataFrame:
+    t = trades([90, -60, 20], ["2024-03-01", "2024-09-01", "2025-02-01"])
+    t["side"] = ["long", "short", "long"]
+    t["gross_pnl"] = [100.0, -50.0, 30.0]
+    t["commission"] = [10.0, 10.0, 10.0]
+    t["qty"] = [10.0, 10.0, 10.0]
+    return t
+
+
+def test_cost_stats():
+    t = cost_trades()
+    assert list(slippage_cost(t, COST_BROKER)) == pytest.approx([0.4, 0.4, 0.4])
+    c = cost_stats(t, COST_BROKER)
+    assert c["profit_factor_before_fees"] == pytest.approx(130 / 50)
+    # before slippage too: 100.4, -49.6, 30.4
+    assert c["profit_factor_before_costs"] == pytest.approx(130.8 / 49.6)
+    assert c["fees"] == 30 and c["slippage"] == pytest.approx(1.2)
+    assert c["gross_pnl"] == 80
+
+
+def test_trade_moves_undo_slippage():
+    t = cost_trades().iloc[:2].copy()
+    # long: filled 100.02 -> 110.98, unslipped 100 -> 111: +11%
+    # short: filled 199.98 -> 180.02, unslipped 200 -> 180: +10% for the short
+    t["entry_price"] = [100.02, 199.98]
+    t["exit_price"] = [110.98, 180.02]
+    t["qty"] = [1.0, 2.0]
+    t["commission"] = [0.2, 0.8]
+    m = trade_moves(t, COST_BROKER)
+    assert list(m["move_pct"]) == pytest.approx([0.11, 0.10])
+    assert list(m["notional"]) == pytest.approx([100.02, 399.96])
+    assert list(m["fee_pct"]) == pytest.approx([0.2 / 100.02, 0.8 / 399.96])
+    assert list(m["slippage_pct"]) == pytest.approx([0.04 / 100.02, 0.08 / 399.96])
+
+
+def test_year_costs_with_atr():
+    t = cost_trades()
+    window = pd.DataFrame(
+        {
+            "open_time": pd.to_datetime(["2024-06-01", "2024-07-01", "2025-01-01"], utc=True),
+            "close": [100.0, 200.0, 100.0],
+            "atr": [1.0, 4.0, 3.0],
+        }
+    )
+    y = year_costs(t, window, COST_BROKER).set_index("year")
+    assert y.loc[2024, "atr_pct"] == pytest.approx(0.015)  # mean of 1% and 2%
+    assert y.loc[2025, "atr_pct"] == pytest.approx(0.03)
+    assert y.loc[2024, "trades"] == 2 and y.loc[2024, "fees"] == 20
+    assert y.loc[2025, "slippage"] == pytest.approx(0.4)
+    # without an atr column (old run folders) the column is empty
+    assert year_costs(t, window.drop(columns="atr"), COST_BROKER)["atr_pct"].isna().all()
+
+
+def test_by_year_side():
+    y = by_year_side(cost_trades())
+    rows = {(r.year, r.side): r for r in y.itertuples()}
+    assert rows[(2024, "long")].net_pnl == 90 and rows[(2024, "short")].net_pnl == -60
+    assert rows[(2025, "long")].trades == 1 and rows[(2025, "short")].trades == 0
+
+
+def test_tail_trades_rank_by_percent_return():
+    # returns +60%, -20%, +50%, -15% (see COMPOUND); 50% of 4 trades = 2
+    best, worst = tail_trades(trades(COMPOUND, EXITS[:4]), 1000, 50)
+    assert list(best["number"]) == [1, 3]
+    assert list(worst["number"]) == [2, 4]
+    assert list(best["return"]) == pytest.approx([0.6, 0.5])
+    best, _ = tail_trades(trades(COMPOUND, EXITS[:4]), 1000, 1)
+    assert list(best["number"]) == [1]  # ceil(0.04) = 1
+
+
+def test_rolling_12m():
+    close = pd.date_range("2024-01-01", "2025-03-01", freq="D", tz="UTC")
+    window = pd.DataFrame({"time_close": close, "equity": [1000.0 + i for i in range(len(close))]})
+    t = trades([50, -25, 40, -10], ["2024-02-01", "2024-12-31", "2025-01-15", "2025-02-15"])
+    r = rolling_12m(t, window)
+    assert list(r["time"].dt.strftime("%Y-%m-%d")) == ["2025-01-01", "2025-02-01", "2025-03-01"]
+    first = r.iloc[0]  # trades exiting 2024-01-01 to 2024-12-31: +50, -25
+    assert first["trades"] == 2 and first["profit_factor"] == pytest.approx(2.0)
+    assert first["return"] == pytest.approx((1000 + 366) / 1000 - 1)  # 2024 has 366 days
+    last = r.iloc[2]  # 2024-03-01 to 2025-02-28: -25, +40, -10
+    assert last["trades"] == 3 and last["profit_factor"] == pytest.approx(40 / 35)

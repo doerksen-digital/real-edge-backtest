@@ -50,6 +50,10 @@ class Strategy:
     def next(self) -> None:
         """Bar logic at the close of bar self.i. Override."""
 
+    def bar_columns(self) -> dict[str, np.ndarray]:
+        """Per-bar indicator values written to equity.csv for the report. Override."""
+        return {}
+
     @property
     def equity(self) -> Decimal:
         """strategy.equity at this close, as used for sizing (see Broker.sizing_equity)."""
