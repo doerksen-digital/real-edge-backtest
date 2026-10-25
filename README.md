@@ -78,6 +78,8 @@ How the engine works:
 - Prices are whole ticks, quantities whole lots and money is Decimal, so sizing and PnL have no float rounding errors.
 - Two fill models. `tradingview` follows TradingView's bar path (open, high, low, close if the open is nearer the high, otherwise open, low, high, close). `pessimistic` fills a stop before a target whenever both are inside one bar. Both fill an order passed by a gap at the open. `pessimistic` is the default; the parity config uses `tradingview`.
 
+Max drawdown is measured on the equity at every candle close, including open trades. It does not match TradingView's max drawdown, whose method is not documented. Parity run 2026: TradingView 1,697.05, ours 2,102.69 on close equity and 1,673.61 on closed trades only. Max drawdown is not a parity criterion.
+
 The parity test compares a run with a TradingView reference. Put `tv_summary.csv` and `tv_trades.csv` in `tests/fixtures/` (format in `tests/test_parity.py`). Without them the test is skipped.
 
 ## Credits
