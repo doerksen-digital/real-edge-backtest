@@ -9,6 +9,12 @@ Definitions:
 - a trade belongs to the calendar year (UTC) and half of the window in which it exits; a bar
   belongs to the year of its open time
 - time in market = share of window bars entered with an open position
+- "without the best trades", return method (the pass criterion): each closed trade's net PnL
+  as a fraction of equity at its entry (starting capital plus the net PnL of all earlier
+  trades), the best N winners by that return removed, the rest compounded in entry order from
+  the starting capital. The USD method (subtracting the best trades' USD PnL) is reported
+  too, but under percent_equity sizing later trades are larger in USD only because equity
+  grew, so it is distorted by compounding.
 - max drawdown = largest peak-to-trough fall, in money and in percent of the peak; the
   starting capital is the first peak
 - buy and hold: one buy at the first window bar's open plus slippage, as many lots as the
@@ -126,6 +132,21 @@ def pnl_without_top(trades: pd.DataFrame, n: int) -> float:
     return float(pnl.sum() - top.sum())
 
 
+def trade_returns(trades: pd.DataFrame, initial: float) -> pd.Series:
+    """Net return of each closed trade on equity at its entry, in entry order. Positions never
+    overlap, so equity at entry = starting capital + net PnL of all earlier trades."""
+    t = closed(trades).sort_values("entry_time")
+    equity_at_entry = initial + t["net_pnl"].cumsum().shift(1, fill_value=0.0)
+    return (t["net_pnl"] / equity_at_entry).reset_index(drop=True)
+
+
+def compounded_without_top(returns: pd.Series, initial: float, n: int) -> float:
+    """Net PnL from compounding the returns in order after removing the n best winning ones."""
+    top = returns[returns > 0].nlargest(n).index
+    kept = returns.drop(index=top)
+    return float(initial * (1 + kept).prod() - initial)
+
+
 def top_pct_count(trade_count: int, pct: float) -> int:
     """Number of trades in the top `pct` percent of `trade_count`, rounded up."""
     return math.ceil(Fraction(trade_count) * Fraction(str(pct)) / 100)
@@ -230,6 +251,9 @@ class Analysis:
     stats: dict[str, float]
     without_top: dict[int, float]
     without_top_pct: tuple[float, int, float]  # (pct, trades removed, net PnL without them)
+    # Return method, used by the pass criterion; the two fields above are the USD method.
+    without_top_return: dict[int, float]
+    without_top_pct_return: tuple[float, int, float]
     years: pd.DataFrame
     halves: list[dict]
     time_in_market: float
@@ -257,6 +281,13 @@ def analyze(run: Run, trades: pd.DataFrame | None = None) -> Analysis:
     }
     removed = top_pct_count(stats["trades"], criteria.without_top_pct)
     pct = (criteria.without_top_pct, removed, pnl_without_top(trades, removed))
+    returns = trade_returns(trades, capital)
+    without_return = {n: compounded_without_top(returns, capital, n) for n in without}
+    pct_return = (
+        criteria.without_top_pct,
+        removed,
+        compounded_without_top(returns, capital, removed),
+    )
     two = halves(trades, run.start, run.end)
     bh = buy_and_hold(window, run.meta["broker"])
     analysis = Analysis(
@@ -264,6 +295,8 @@ def analyze(run: Run, trades: pd.DataFrame | None = None) -> Analysis:
         stats=stats,
         without_top=without,
         without_top_pct=pct,
+        without_top_return=without_return,
+        without_top_pct_return=pct_return,
         years=by_year(trades, window, capital),
         halves=two,
         time_in_market=time_in_market(window),
@@ -278,7 +311,8 @@ def analyze(run: Run, trades: pd.DataFrame | None = None) -> Analysis:
 
 def checks(a: Analysis, c: Criteria) -> list[Check]:
     n = c.without_top_n
-    pct, removed, without_pct = a.without_top_pct
+    pct, removed, without_pct = a.without_top_pct_return
+    without_n = a.without_top_return[n]
     pf = a.stats["profit_factor"]
     return [
         Check(
@@ -294,10 +328,10 @@ def checks(a: Analysis, c: Criteria) -> list[Check]:
             a.stats["trades"] >= c.min_trades,
         ),
         Check(
-            "Net PnL without the best trades",
+            "Net PnL without the best trades (return method)",
             f"> 0 without top {n} and without top {pct:g}% ({removed} trades)",
-            f"top {n}: {a.without_top[n]:,.2f}; top {pct:g}%: {without_pct:,.2f}",
-            a.without_top[n] > 0 and without_pct > 0,
+            f"top {n}: {without_n:,.2f}; top {pct:g}%: {without_pct:,.2f}",
+            without_n > 0 and without_pct > 0,
         ),
         Check(
             "Net PnL first half",

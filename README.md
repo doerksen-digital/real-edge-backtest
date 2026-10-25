@@ -66,7 +66,7 @@ The download logic follows the official downloader in [binance/binance-public-da
 
 ## Running a backtest
 
-A run is defined by a TOML config: data, strategy and parameters, sizing, broker settings and fill model, gap threshold and pass criteria. Examples: [configs/ema_vwap_parity.toml](configs/ema_vwap_parity.toml) (TradingView parity, 2026) and [configs/ema_vwap_full.toml](configs/ema_vwap_full.toml) (2018 to 2025, pessimistic fills, 3,000 USD).
+A run is defined by a TOML config: data, strategy and parameters, sizing, broker settings and fill model, gap threshold and pass criteria. Examples: [configs/ema_vwap_parity.toml](configs/ema_vwap_parity.toml) (TradingView parity, 2026) and [configs/ema_vwap_full.toml](configs/ema_vwap_full.toml) (2018 to 2025, pessimistic fills, 3,000 USD) and [configs/ema_vwap_full_fixed.toml](configs/ema_vwap_full_fixed.toml) (the same with a fixed notional of 3,000 USD per trade).
 
 ```bash
 real-edge-backtest run --config configs/ema_vwap_full.toml
@@ -111,8 +111,9 @@ Gaps are exchange downtime. They are never filled.
 ### Report
 
 - Header: strategy, window, seen window, fill model, fees, slippage, sizing, starting equity, config hash, git commit, working tree state, data hash, warnings.
-- Pass criteria from `[criteria]`: profit factor (`min_profit_factor`, default 1.3), closed trades (`min_trades`, default 100), net PnL still positive both without the `without_top_n` best trades (default 5) and without the best `without_top_pct` percent of trades (default 1, count rounded up), net PnL in both halves of the window. Return, max drawdown and time in market are shown next to buy and hold as comparisons.
-- Trade metrics: profit factor, expectancy, win rate, average win and loss, PnL without the top 1, 3 and 5 trades and without the top 1%, time in market, max drawdown on close equity and on closed trades.
+- Pass criteria from `[criteria]`: profit factor (`min_profit_factor`, default 1.3), closed trades (`min_trades`, default 100), net PnL still positive both without the `without_top_n` best trades (default 5) and without the best `without_top_pct` percent of trades (default 1, count rounded up), by the return method below, net PnL in both halves of the window. Return, max drawdown and time in market are shown next to buy and hold as comparisons.
+- Trade metrics: profit factor, expectancy, win rate, average win and loss, PnL without the top 1, 3 and 5 trades and without the top 1% (return method and USD method), time in market, max drawdown on close equity and on closed trades.
+- "Without the best trades", return method (used by the pass criterion): each closed trade's net PnL as a fraction of equity at its entry, the best trades by that return removed, the remaining returns compounded in entry order from the starting equity. The USD method subtracts the best trades' USD PnL and is shown as "USD method (distorted by compounding)": under `percent_equity` sizing later trades are larger in USD only because equity grew.
 - Buy and hold: one buy at the first window candle's open, sold at the last window candle's close, same starting equity, commission and slippage.
 - Charts: equity, drawdown, return per year, strategy vs buy and hold.
 - Tables per calendar year (UTC) and per half of the window. A trade counts in the period of its exit.

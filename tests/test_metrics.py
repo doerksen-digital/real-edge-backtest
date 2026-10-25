@@ -13,12 +13,14 @@ from real_edge_backtest.analysis.metrics import (
     buy_and_hold,
     by_year,
     closed_trade_equity,
+    compounded_without_top,
     halves,
     load_run,
     max_drawdown,
     pnl_without_top,
     time_in_market,
     top_pct_count,
+    trade_returns,
     trade_stats,
     window_equity,
 )
@@ -201,7 +203,9 @@ def test_thresholds_come_from_config():
     by_name = {c.name: c for c in loose.checks}
     assert by_name["Profit factor (net)"].passed  # 40 / 20 = 2.0
     assert by_name["Closed trades"].passed
-    assert by_name["Net PnL without the best trades"].passed is False  # 20 - 30
+    # by return: +30 on 1,000 = 3%, -20 on 1,030, +10 on 1,010; without the 3%:
+    # 1,000 x (1 - 20/1030) x (1 + 10/1010) - 1,000 < 0
+    assert by_name["Net PnL without the best trades (return method)"].passed is False
     assert not analyze(run_with({})).checks[1].passed  # default min_trades is 100
     strict = analyze(run_with({"min_profit_factor": 2.5}))
     assert not {c.name: c for c in strict.checks}["Profit factor (net)"].passed
@@ -229,26 +233,67 @@ def best_trades_check(pnls, criteria):
         equity=equity_frame(),
     )
     a = analyze(run)
-    return a, {c.name: c for c in a.checks}["Net PnL without the best trades"]
+    return a, {c.name: c for c in a.checks}["Net PnL without the best trades (return method)"]
 
 
 def test_best_trades_criterion_needs_both_checks():
     # 200 trades: one +500 winner, 30 winners of +10, 169 losers of -1. Net 631.
     pnls = [500] + [10] * 30 + [-1] * 169
     # top 5: 631 - 500 - 40 = 91 > 0. top 1% = 2 trades: 631 - 510 = 121 > 0. Both pass.
+    # USD method values (reported, not the criterion).
     a, check = best_trades_check(pnls, {"without_top_n": 5, "without_top_pct": 1})
     assert a.without_top[5] == 91
     assert a.without_top_pct == (1, 2, 121)
-    assert check.passed
-    assert check.value == "top 5: 91.00; top 1%: 121.00"
     assert check.threshold == "> 0 without top 5 and without top 1% (2 trades)"
-    # top 5 passes (91), top 10% = 20 trades: 631 - 500 - 190 = -59 fails: criterion fails.
-    a, check = best_trades_check(pnls, {"without_top_n": 5, "without_top_pct": 10})
-    assert a.without_top[5] > 0 and a.without_top_pct == (10, 20, -59)
+    a, _ = best_trades_check(pnls, {"without_top_n": 5, "without_top_pct": 10})
+    assert a.without_top_pct == (10, 20, -59)
+    a, _ = best_trades_check(pnls, {"without_top_n": 15, "without_top_pct": 1})
+    assert a.without_top[15] == -9
+
+
+# Return method ---------------------------------------------------------------------------
+# Starting capital 1,000 (BROKER). Four trades in order:
+#   +600 on 1,000 = +60%  -> 1,600
+#   -320 on 1,600 = -20%  -> 1,280
+#   +640 on 1,280 = +50%  -> 1,920
+#   -288 on 1,920 = -15%  -> 1,632      net +632
+COMPOUND = [600, -320, 640, -288]
+
+
+def test_trade_returns_use_equity_at_entry():
+    returns = trade_returns(trades(COMPOUND, EXITS[:4]), 1000)
+    assert returns.tolist() == pytest.approx([0.6, -0.2, 0.5, -0.15])
+    # Compounding all returns gives back the real net PnL.
+    assert compounded_without_top(returns, 1000, 0) == pytest.approx(632)
+
+
+def test_return_and_usd_methods_disagree():
+    t = trades(COMPOUND, EXITS[:4])
+    # USD: the best trade is the late +640 (larger only because equity grew): 632 - 640 = -8.
+    assert pnl_without_top(t, 1) == -8
+    # Return: the best trade is the early +60%: 1,000 x 0.8 x 1.5 x 0.85 = 1,020, net +20.
+    returns = trade_returns(t, 1000)
+    assert compounded_without_top(returns, 1000, 1) == pytest.approx(20)
+
+
+def test_best_trades_criterion_uses_the_return_method():
+    # top 1 and top 1% (ceil(0.04) = 1 trade): both +20 by return, -8 by USD. Passes.
+    a, check = best_trades_check(COMPOUND, {"without_top_n": 1, "without_top_pct": 1})
+    assert a.without_top[1] == -8 and a.without_top_pct[2] == -8
+    assert a.without_top_return[1] == pytest.approx(20)
+    assert a.without_top_pct_return[:2] == (1, 1)
+    assert check.passed
+    assert check.value == "top 1: 20.00; top 1%: 20.00"
+
+
+def test_best_trades_criterion_needs_both_return_checks():
+    # top 2 by return (+60%, +50%): 1,000 x 0.8 x 0.85 = 680, net -320. top 1% passes (+20).
+    a, check = best_trades_check(COMPOUND, {"without_top_n": 2, "without_top_pct": 1})
+    assert a.without_top_return[2] == pytest.approx(-320)
     assert check.passed is False
-    # top 1% passes (121), top 15 fails: 631 - 500 - 140 = -9: criterion fails.
-    a, check = best_trades_check(pnls, {"without_top_n": 15, "without_top_pct": 1})
-    assert a.without_top[15] == -9 and a.without_top_pct[2] > 0
+    # top 1 passes (+20), top 50% = 2 trades fails (-320).
+    a, check = best_trades_check(COMPOUND, {"without_top_n": 1, "without_top_pct": 50})
+    assert a.without_top_pct_return[1:] == (2, pytest.approx(-320))
     assert check.passed is False
 
 

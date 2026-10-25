@@ -63,6 +63,7 @@ def test_report_is_self_contained_and_complete(run_folder):
     assert "abc123" in text and "clean" in text
     assert "Start is only 2 days after the first candle" in text
     assert "Net PnL without top 1% (" in text
+    assert "return method" in text and "USD method (distorted by compounding)" in text
     assert "and without top 1% (" in text
 
 

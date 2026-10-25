@@ -134,9 +134,15 @@ def metric_rows(a: Analysis) -> list[tuple[str, str]]:
         ("Average win", _money(s["average_win"])),
         ("Average loss", _money(s["average_loss"])),
     ]
-    rows += [(f"Net PnL without top {n}", _money(v)) for n, v in a.without_top.items()]
-    pct, removed, without_pct = a.without_top_pct
-    rows.append((f"Net PnL without top {pct:g}% ({removed} trades)", _money(without_pct)))
+    pct, removed, _ = a.without_top_pct
+    for method, by_n, by_pct in (
+        ("return method", a.without_top_return, a.without_top_pct_return),
+        ("USD method (distorted by compounding)", a.without_top, a.without_top_pct),
+    ):
+        rows += [(f"Net PnL without top {n}, {method}", _money(v)) for n, v in by_n.items()]
+        rows.append(
+            (f"Net PnL without top {pct:g}% ({removed} trades), {method}", _money(by_pct[2]))
+        )
     rows += [
         ("Time in market", _pct(a.time_in_market)),
         ("Max drawdown, close equity", f"{_money(a.max_drawdown[0])} ({_pct(a.max_drawdown[1])})"),
@@ -161,6 +167,10 @@ def trade_metrics(a: Analysis) -> str:
     ]
     return (
         "<h2>Trade metrics</h2>"
+        + '<p class="note">Return method: each trade\'s net return on equity at entry, the best '
+        "trades removed, the rest compounded in order from the starting equity. USD method: the "
+        "best trades' USD PnL subtracted; under percent of equity sizing later trades are larger "
+        "in USD only because equity grew.</p>"
         + _kv(metric_rows(a))
         + '<h2>Buy and hold</h2><p class="note">One buy at the first window bar\'s open plus '
         "slippage, sold at the last window bar's close, same commission and starting equity.</p>"
