@@ -8,6 +8,10 @@ previous completed daily close is above the previous completed daily EMA, shorts
 a blocked cross still closes the open trade. Only bars whose close time is inside [start, end)
 can trade, and an open position is closed with "Test end" on the first bar that closes at or
 after end.
+
+After a gap of at least min_gap_bars missing candles (Backtest setting), crosses are ignored
+entirely until max(vwap_bars, atr_length, ema_length) contiguous candles exist again, so no
+entry uses a VWAP window that spans the gap. An open trade keeps its stop meanwhile.
 """
 
 import math
@@ -95,6 +99,8 @@ class EmaVwap(Strategy):
         self.position_pct = Decimal(str(p["position_pct"]))
         self.fee_reserve_pct = Decimal(str(p["fee_reserve_pct"]))
         self.time_close_list = list(self.time_close)
+        self.min_contiguous = max(p["vwap_bars"], p["atr_length"], p["ema_length"])
+        self.counters["ignored_after_gap"] = 0
 
     def next(self) -> None:
         i, p, broker = self.i, self.p, self.broker
@@ -121,6 +127,9 @@ class EmaVwap(Strategy):
         )
         up, down = bool(self.cross_up[i]), bool(self.cross_down[i])
         if not (in_range and ready and (up or down)):
+            return
+        if self.contiguous_bars[i] < self.min_contiguous:
+            self.counters["ignored_after_gap"] += 1
             return
 
         trend_up = self.daily_close_prev[i] > self.daily_ema_prev[i]

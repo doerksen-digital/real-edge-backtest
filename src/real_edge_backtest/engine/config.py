@@ -37,6 +37,7 @@ class RunConfig:
     strategy: str
     params: dict[str, Any] = field(default_factory=dict)
     broker: BrokerConfig = field(default_factory=BrokerConfig)
+    min_gap_bars: int = 3  # [gaps]: gaps this long block entries until indicators recover
     runs_dir: Path = Path("runs")
     experiment_log: Path = Path("experiments/log.jsonl")
     criteria: dict[str, Any] = field(default_factory=dict)  # pass criteria, read by the report
@@ -71,6 +72,7 @@ def load_config(path: Path) -> RunConfig:
             point_value=_decimal(broker.get("point_value", defaults.point_value)),
             fill_model=broker.get("fill_model", defaults.fill_model),
         ),
+        min_gap_bars=int(raw.get("gaps", {}).get("min_gap_bars", 3)),
         runs_dir=Path(raw.get("output", {}).get("runs_dir", "runs")),
         experiment_log=Path(raw.get("output", {}).get("experiment_log", "experiments/log.jsonl")),
         criteria=dict(raw.get("criteria", {})),

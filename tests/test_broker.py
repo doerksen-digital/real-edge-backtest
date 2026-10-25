@@ -209,6 +209,7 @@ class Forced(EmaVwap):
         self.cross_down = np.array([self.down.get(i, False) for i in range(n)])
         self.daily_ema_prev = np.full(n, 100.0)
         self.daily_close_prev = np.array([100.0 + self.trend.get(i, 0) for i in range(n)])
+        self.contiguous_bars = np.full(n, 10_000)  # no gap block on short synthetic data
 
 
 def run_forced(candles: pd.DataFrame, **signals) -> Result:

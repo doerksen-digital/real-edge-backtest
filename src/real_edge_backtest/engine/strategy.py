@@ -32,6 +32,15 @@ class Strategy:
         self.volume = data["volume"].to_numpy(dtype=float)
         self.time = data["open_time"]
         self.time_close = data["time_close"]
+        n = len(data)
+        # Set by Backtest; a bare frame counts as gap-free.
+        self.missing_before = (
+            data["missing_before"].to_numpy() if "missing_before" in data else np.zeros(n, int)
+        )
+        self.contiguous_bars = (
+            data["contiguous_bars"].to_numpy() if "contiguous_bars" in data else np.arange(1, n + 1)
+        )
+        self.counters: dict[str, int] = {}
 
     def init(self) -> None:
         """Build indicators. Override."""

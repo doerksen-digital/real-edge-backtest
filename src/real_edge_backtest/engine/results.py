@@ -62,6 +62,7 @@ def trades_frame(result: Result) -> pd.DataFrame:
                 "gross_pnl": float(t.gross_pnl),
                 "commission": float(t.commission),
                 "net_pnl": float(t.net_pnl),
+                "touches_gap": result.touches_gap(t),
             }
         )
     return pd.DataFrame(rows)

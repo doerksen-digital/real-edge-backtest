@@ -28,7 +28,7 @@ def test_different_starts_give_identical_indicators_on_overlapping_bars():
 
 
 class ForcedCrosses(EmaVwap):
-    """Real daily values; EMA, VWAP and ATR forced valid, crosses at fixed bars."""
+    """Real daily values; EMA, VWAP and ATR forced valid, no gap block, crosses at fixed bars."""
 
     up_bars = (2, 30)
 
@@ -40,6 +40,7 @@ class ForcedCrosses(EmaVwap):
         self.atr = np.full(n, 0.5)
         self.cross_up = np.isin(np.arange(n), self.up_bars)
         self.cross_down = np.zeros(n, dtype=bool)
+        self.contiguous_bars = np.full(n, 10_000)  # isolate the daily readiness rule
 
 
 def test_no_trade_until_previous_day_values_exist():

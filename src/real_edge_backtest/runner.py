@@ -75,4 +75,5 @@ def run_backtest(config: RunConfig, data: pd.DataFrame | None = None) -> Result:
         config.broker,
         config.params,
         interval=pd.Timedelta(seconds=interval_seconds(config.interval)),
+        min_gap_bars=config.min_gap_bars,
     ).run()

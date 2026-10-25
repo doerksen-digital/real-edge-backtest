@@ -84,6 +84,10 @@ def _run(args: argparse.Namespace) -> int:
         meta["first_candle"] = candles["open_time"].iloc[0]
         meta["warnings"] = history_warnings(candles, window["start"])
         result = run_backtest(config, candles)
+        meta["gaps"] = {
+            **result.gap_summary(),
+            "ignored_signals": result.counters.get("ignored_after_gap", 0),
+        }
     except (FileNotFoundError, KeyError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
@@ -120,6 +124,11 @@ def _run(args: argparse.Namespace) -> int:
         print("  seen window     unseen by earlier runs of this strategy")
     print(f"  variants        {variants} parameter sets of {config.strategy} logged so far")
     print(f"  fill model      {config.broker.fill_model}")
+    g = meta["gaps"]
+    print(
+        f"  gaps            {g['count']} ({g['above_threshold']} with >= {g['min_gap_bars']} "
+        f"missing), {g['ignored_signals']} crosses ignored after gaps"
+    )
     print(f"  trades          {s.trades}" + (f" (+{open_trades} open)" if open_trades else ""))
     print(f"  win rate        {s.win_rate:.2%} ({s.winners} winners)")
     print(f"  profit factor   {s.profit_factor:.3f}")
