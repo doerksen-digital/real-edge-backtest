@@ -124,7 +124,13 @@ def _run(args: argparse.Namespace) -> int:
     g = meta["gaps"]
     print(
         f"  gaps            {g['count']} ({g['above_threshold']} with >= {g['min_gap_bars']} "
-        f"missing), {g['ignored_signals']} crosses ignored after gaps"
+        f"missing), {g['ignored_signals']} signals ignored after gaps"
+    )
+    if "skipped_days" in g:
+        print(f"  skipped days    {g['skipped_days']} (range window missed a candle)")
+    print(
+        f"  both in bar     {meta['bracket']['both_in_bar']} exits with stop and target "
+        "inside one candle"
     )
     print(f"  trades          {s.trades}" + (f" (+{open_trades} open)" if open_trades else ""))
     print(f"  win rate        {s.win_rate:.2%} ({s.winners} winners)")

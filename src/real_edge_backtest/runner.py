@@ -109,7 +109,14 @@ def execute(config: RunConfig, holdout: bool = False) -> Execution:
     meta["gaps"] = {
         **result.gap_summary(),
         "ignored_signals": result.counters.get("ignored_after_gap", 0),
+        **(
+            {"skipped_days": result.counters["skipped_days"]}
+            if "skipped_days" in result.counters
+            else {}
+        ),
     }
+    # Exits on a candle that held both the stop and the target: the fill model decided them.
+    meta["bracket"] = {"both_in_bar": sum(t.both_in_bar for t in result.closed_trades)}
     folder = write_run(result, config.runs_dir, config.name, config.source_text, meta)
     a = analyze(load_run(folder))
     entry = experiments.make_entry(

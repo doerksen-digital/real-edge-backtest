@@ -398,12 +398,17 @@ def gap_section(run: Run, a: Analysis) -> str:
         for (k, v1), (_, v2) in zip(metric_rows(a), metric_rows(clean), strict=True)
         if not k.startswith(("Return", "Time in market", "Max drawdown, close"))
     ]
+    skipped = (
+        f"{gaps['skipped_days']} days built no range because their range window missed a candle. "
+        if "skipped_days" in gaps
+        else ""
+    )
     return (
         "<h2>Gap sensitivity</h2>"
         f'<p class="note">{gaps["count"]} gaps in the dataset, {gaps["above_threshold"]} '
-        f"with at least {gaps['min_gap_bars']} missing candles (entries blocked until the "
-        f"indicators have enough contiguous candles). {gaps.get('ignored_signals', 0)} crosses "
-        f"were ignored inside that block. {int(touched.sum())} trades were open across a gap. "
+        f"with at least {gaps['min_gap_bars']} missing candles. "
+        f"{gaps.get('ignored_signals', 0)} signals were ignored by the strategy's gap rule. "
+        f"{skipped}{int(touched.sum())} trades were open across a gap. "
         "Equity-based rows are omitted because removing trades does not give a real equity "
         "curve.</p>" + _table(["Metric", "All trades", "Without gap trades"], rows)
     )

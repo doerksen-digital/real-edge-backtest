@@ -2,11 +2,14 @@
 0.05%, slippage 2 ticks. Candles are flat at 100.00 unless set; the range bar at 01:00 NY makes
 the range 99.00 to 101.00."""
 
+import json
 from decimal import Decimal
 
 import pandas as pd
 import pytest
 
+from conftest import random_walk_5m
+from real_edge_backtest.cli import main
 from real_edge_backtest.engine import Backtest, Broker, BrokerConfig
 from real_edge_backtest.engine.sizing import SizingConfig
 from real_edge_backtest.strategies.ny_range import TZ, NyRange
@@ -354,3 +357,36 @@ def test_fixed_risk_uses_the_distance_from_the_expected_fill_to_the_stop():
     result = Backtest(data, NyRange, BrokerConfig(), params, interval=FIVE, sizing=sizing).run()
     # 1% of 10,000 over (99.52 - 97.80) per BTC: floor(100 / 1.72 / 0.00001)
     assert result.trades[0].lots == 5_813_953
+
+
+def test_run_output_and_run_json_show_skipped_days_and_both_in_bar(tmp_path, capsys):
+    data_dir = tmp_path / "data"
+    target = data_dir / "spot" / "klines" / "TEST" / "5m.parquet"
+    target.parent.mkdir(parents=True)
+    candles = random_walk_5m(288 * 10, 3)
+    candles.drop(index=[304]).reset_index(drop=True).to_parquet(target)  # day 2, 01:20 NY
+    config = tmp_path / "run.toml"
+    config.write_text(
+        f"""name = "case"
+[data]
+symbol = "TEST"
+interval = "5m"
+data_dir = "{data_dir.as_posix()}"
+[strategy]
+name = "ny_range"
+[strategy.params]
+start = "2026-01-05T05:00:00Z"
+[output]
+runs_dir = "{(tmp_path / "runs").as_posix()}"
+experiment_log = "{(tmp_path / "log.jsonl").as_posix()}"
+""",
+        encoding="utf-8",
+    )
+    assert main(["run", "--config", str(config)]) == 0
+    out = capsys.readouterr().out
+    assert "signals ignored after gaps" in out and "crosses" not in out
+    assert "skipped days    1 (range window missed a candle)" in out
+    assert "both in bar" in out
+    meta = json.loads(next((tmp_path / "runs").glob("*/run.json")).read_text(encoding="utf-8"))
+    assert meta["gaps"]["skipped_days"] == 1
+    assert isinstance(meta["bracket"]["both_in_bar"], int)
