@@ -38,6 +38,7 @@ class Trade:
     exit_commission: Decimal = Decimal(0)
     gross_pnl: Decimal = Decimal(0)
     sizing_capped: bool = False  # the sizing mode wanted more than 100% of equity
+    exit_by_stop: bool = False  # closed by a price (stop) order inside the bar
 
     @property
     def commission(self) -> Decimal:
@@ -168,4 +169,6 @@ class Broker:
             return
         order, trigger = fill
         price = self._slipped(trigger, order.side) if order.kind == "stop" else trigger
-        self._close_trade(price, self.open_trade.lots, order.comment)
+        trade = self.open_trade
+        self._close_trade(price, trade.lots, order.comment)
+        trade.exit_by_stop = True

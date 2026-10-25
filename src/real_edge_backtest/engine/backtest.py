@@ -38,6 +38,7 @@ class Result:
     missing_before: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     min_gap_bars: int = 3
     counters: dict[str, int] = field(default_factory=dict)  # strategy counters
+    enriched: pd.DataFrame | None = None  # per trade: entry features and excursions
 
     @property
     def closed_trades(self) -> list[Trade]:
@@ -70,6 +71,58 @@ def gap_columns(
         run = 1 if m >= min_gap_bars else run + 1
         contiguous[i] = run
     return missing, contiguous
+
+
+def excursions(
+    trade: Trade,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    slippage_ticks: int,
+    atr: float,
+    tick: float,
+) -> dict[str, float]:
+    """How far a trade went for and against it, from the bars after its entry bar through its
+    exit bar (or the last bar while open). Prices are unslipped: the entry is the entry bar's
+    close, the exit the fill before slippage, so realized_pct matches the gross move.
+
+    On the exit bar of a stop exit, the adverse extreme is the stop trigger and the favorable
+    extreme is not counted (pessimistic: the stop is assumed to come first). On the exit bar
+    of a market exit at the close, the whole bar counts.
+
+    pct values are fractions of the entry price; atr values are in ATR at entry; mae is a
+    positive distance. mfe_bar: bars after entry at which the MFE was first reached (0: none).
+    """
+    side, e = trade.side, trade.entry_index
+    last = len(close) - 1 if trade.exit_index is None else trade.exit_index
+    entry = int(close[e])
+    best = worst = 0
+    best_bar = 0
+    for k in range(e + 1, last + 1):
+        favorable = high[k] if side > 0 else low[k]
+        adverse = low[k] if side > 0 else high[k]
+        if k == trade.exit_index and trade.exit_by_stop:
+            favorable = entry
+            adverse = trade.exit_price + side * slippage_ticks
+        gain = side * (int(favorable) - entry)
+        if gain > best:
+            best, best_bar = gain, k - e
+        worst = max(worst, -side * (int(adverse) - entry))
+    if trade.exit_index is None:
+        realized = side * (int(close[last]) - entry)
+    else:
+        realized = side * (trade.exit_price + side * slippage_ticks - entry)
+    atr_ok = atr > 0 and not np.isnan(atr)
+    return {
+        "mfe_pct": best / entry,
+        "mae_pct": worst / entry,
+        "mfe_atr": best * tick / atr if atr_ok else np.nan,
+        "mae_atr": worst * tick / atr if atr_ok else np.nan,
+        "realized_pct": realized / entry,
+        "giveback_pct": (best - realized) / entry,
+        "bars_held": last - e,
+        "mfe_bar": best_bar,
+    }
 
 
 def to_ticks(prices: pd.Series, tick_size: Decimal) -> np.ndarray:
@@ -131,6 +184,31 @@ class Backtest:
             equity.append(broker.equity(int(c[i])))
             positions.append(broker.position)
 
+        bar_columns = strategy.bar_columns()
+        atr = bar_columns.get("atr")
+        slip = self.broker_config.slippage_ticks
+        enriched = pd.DataFrame(
+            [
+                {
+                    "number": t.number,
+                    "side": "long" if t.side > 0 else "short",
+                    "entry_time": t.entry_time,
+                    "exit_time": t.exit_time,
+                    "exit_by_stop": t.exit_by_stop,
+                    **strategy.entry_features(t.entry_index, t.side),
+                    **excursions(
+                        t,
+                        h,
+                        lo,
+                        c,
+                        slip,
+                        np.nan if atr is None else float(atr[t.entry_index]),
+                        float(tick),
+                    ),
+                }
+                for t in broker.trades
+            ]
+        )
         return Result(
             trades=broker.trades,
             equity=pd.DataFrame(
@@ -141,11 +219,12 @@ class Backtest:
                     "close": self.data["close"],
                     "position": positions,
                     "equity": equity,
-                    **strategy.bar_columns(),
+                    **bar_columns,
                 }
             ),
             broker=self.broker_config,
             missing_before=self.data["missing_before"].to_numpy(),
             min_gap_bars=self.min_gap_bars,
             counters=dict(strategy.counters),
+            enriched=enriched,
         )

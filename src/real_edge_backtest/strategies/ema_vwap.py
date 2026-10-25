@@ -12,6 +12,17 @@ after end.
 After a gap of at least min_gap_bars missing candles (Backtest setting), crosses are ignored
 entirely until max(vwap_bars, atr_length, ema_length) contiguous candles exist again, so no
 entry uses a VWAP window that spans the gap. An open trade keeps its stop meanwhile.
+
+Entry features (trades_enriched.csv, entry bar i, nothing after i):
+- atr_pct: ATR / close
+- dist_daily_ema_atr: (close - previous day's daily EMA) / ATR
+- daily_ema_slope_pct: previous day's daily EMA / the day before's - 1
+- sep_atr: (EMA - VWAP) / ATR; sep_atr_side: the same times the trade side
+- crosses_24, crosses_48: EMA/VWAP crosses either way in the 24 or 48 bars before i
+- vol_ratio_24, vol_ratio_7d: volume of bar i / mean volume of the 24 bars or of the bars of
+  the 7 days before i
+- hour_utc, weekday_utc (Monday 0): of the entry fill, the close time of bar i
+Windows count bars, like the indicators; a value is na until the window has enough bars.
 """
 
 from decimal import Decimal
@@ -69,6 +80,7 @@ class EmaVwap(Strategy):
         self.daily_close_prev = previous_day_values(
             self.time, daily.index, daily["close"].to_numpy(dtype=float)
         )
+        self.daily_ema_prev2 = previous_day_values(self.time, daily.index, daily_ema, lag=2)
 
         cfg = self.broker.config
         self.mintick = float(cfg.tick_size)
@@ -83,6 +95,44 @@ class EmaVwap(Strategy):
 
     def bar_columns(self) -> dict[str, np.ndarray]:
         return {"atr": self.atr}
+
+    def _window_sums(self) -> dict[str, np.ndarray]:
+        """Prefix sums for the bar windows of entry_features, built on first use (after init
+        and after any test subclass replaced the cross arrays)."""
+        if not hasattr(self, "_sums"):
+            crosses = (np.asarray(self.cross_up) | np.asarray(self.cross_down)).astype(np.int64)
+            self._sums = {
+                "crosses": np.concatenate(([0], np.cumsum(crosses))),
+                "volume": np.concatenate(([0.0], np.cumsum(self.volume))),
+            }
+            interval = self.time_close.iloc[0] - self.time.iloc[0]
+            self._bars_7d = int(pd.Timedelta(days=7) / interval)
+        return self._sums
+
+    def _before(self, name: str, i: int, n: int) -> float:
+        """Sum of `name` over the n bars before i, na if fewer than n exist."""
+        s = self._window_sums()[name]
+        return float(s[i] - s[i - n]) if i >= n else np.nan
+
+    def entry_features(self, i: int, side: int) -> dict[str, float]:
+        close, atr = self.close[i], self.atr[i]
+        self._window_sums()
+        bars_7d = self._bars_7d
+        fill_time = self.time_close.iloc[i]
+        sep = (self.ema[i] - self.vwap[i]) / atr
+        return {
+            "atr_pct": atr / close,
+            "dist_daily_ema_atr": (close - self.daily_ema_prev[i]) / atr,
+            "daily_ema_slope_pct": self.daily_ema_prev[i] / self.daily_ema_prev2[i] - 1,
+            "sep_atr": sep,
+            "sep_atr_side": sep * side,
+            "crosses_24": self._before("crosses", i, 24),
+            "crosses_48": self._before("crosses", i, 48),
+            "vol_ratio_24": self.volume[i] / (self._before("volume", i, 24) / 24),
+            "vol_ratio_7d": self.volume[i] / (self._before("volume", i, bars_7d) / bars_7d),
+            "hour_utc": fill_time.hour,
+            "weekday_utc": fill_time.weekday(),
+        }
 
     def _mark_capped(self, capped: bool) -> None:
         if capped and self.broker.open_trade is not None:

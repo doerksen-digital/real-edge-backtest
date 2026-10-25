@@ -50,6 +50,11 @@ class Strategy:
     def next(self) -> None:
         """Bar logic at the close of bar self.i. Override."""
 
+    def entry_features(self, i: int, side: int) -> dict[str, Any]:
+        """Values known at the close of bar i that describe an entry there on `side` (+1 long,
+        -1 short), written to trades_enriched.csv. May only read indices <= i. Override."""
+        return {}
+
     def bar_columns(self) -> dict[str, np.ndarray]:
         """Per-bar indicator values written to equity.csv for the report. Override."""
         return {}

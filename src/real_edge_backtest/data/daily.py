@@ -28,8 +28,9 @@ def daily_candles(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def previous_day_values(
-    open_time: pd.Series, daily_index: pd.DatetimeIndex, daily_values: np.ndarray
+    open_time: pd.Series, daily_index: pd.DatetimeIndex, daily_values: np.ndarray, lag: int = 1
 ) -> np.ndarray:
-    """For each intraday bar, the daily value of the previous daily bar (expr[1] on day D)."""
-    shifted = pd.Series(daily_values, index=daily_index).shift(1)
+    """For each intraday bar, the daily value `lag` daily bars before its day (expr[lag] on
+    day D; lag 1 is the previous completed day)."""
+    shifted = pd.Series(daily_values, index=daily_index).shift(lag)
     return shifted.reindex(open_time.dt.floor("D")).to_numpy(dtype=float)
