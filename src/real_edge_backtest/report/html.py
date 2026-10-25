@@ -31,6 +31,7 @@ th { background: #f6f6f6; font-weight: 600; }
 .pass { color: #18794e; font-weight: 600; }
 .fail { color: #b23b3b; font-weight: 600; }
 .info { color: #555; }
+.holdout { background: #b23b3b; color: #fff; font-weight: 700; padding: 10px 12px; margin: 8px 0; }
 .warn { background: #fff4d6; border: 1px solid #e6c46a; padding: 8px 12px; margin: 8px 0; }
 .chart svg { max-width: 100%; height: auto; }
 .scroll { max-height: 520px; overflow: auto; border: 1px solid #eee; }
@@ -99,7 +100,14 @@ def header(run: Run) -> str:
         ("Data SHA-256", prov.get("data_sha256", "unknown")),
     ]
     warning_html = "".join(f'<div class="warn">{_e(w)}</div>' for w in m.get("warnings", []))
-    return f"<h1>Backtest report: {_e(m.get('name'))}</h1>{warning_html}{_kv(rows)}"
+    holdout_html = (
+        f'<div class="holdout">HOLDOUT RUN: {_e(m.get("symbol"))} is holdout data under the '
+        "research protocol (docs/PLAN.md).</div>"
+        if m.get("holdout")
+        else ""
+    )
+    title = f"<h1>Backtest report: {_e(m.get('name'))}</h1>"
+    return f"{title}{holdout_html}{warning_html}{_kv(rows)}"
 
 
 def pass_block(a: Analysis) -> str:

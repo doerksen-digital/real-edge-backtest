@@ -104,6 +104,17 @@ Covered by unit tests:
 
 Added in phase 3: trade metrics, the report, the experiment log, readiness, gap rules and sizing modes. Not covered yet: data download.
 
+## Research protocol
+
+Applies from phase 4a on. Every hypothesis run follows it.
+
+- **Development data:** BTCUSDT 1h, 2018-01-01 to the latest data. Exploration is allowed here.
+- **Validation data:** ETHUSDT 1h. **Final test:** SOLUSDT 1h, then paper trading.
+- No strategy runs on ETH or SOL during development. Only a short list of the best candidates is ever run on ETH, later and unchanged. The engine refuses a run on ETHUSDT or SOLUSDT without `--holdout`; with it, the run is marked as a holdout run in `run.json`, the experiment log and the report.
+- Every hypothesis needs a market mechanism (why it should work), a precise rule, at most 2 free parameters, and its neighbor values, all written down before it is run.
+- No rules that filter trades by their outcome. No calendar rules (hour, weekday) unless there is a clear mechanism.
+- Fees stay 0.05% per side, slippage 2 ticks, fill model pessimistic, sizing percent_equity unless the hypothesis is about sizing.
+
 ## Pass criteria for a strategy
 
 Fixed before a test runs. Net of fees and slippage:

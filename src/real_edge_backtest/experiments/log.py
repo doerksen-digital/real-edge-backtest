@@ -59,6 +59,7 @@ def make_entry(meta: dict[str, Any], metrics: dict[str, Any], run_folder: str) -
         "commission_pct": meta["broker"]["commission_pct"],
         "slippage_ticks": meta["broker"]["slippage_ticks"],
         "sizing_mode": meta.get("sizing", {}).get("mode", "percent_equity"),
+        "holdout": bool(meta.get("holdout", False)),
         "metrics": metrics,
         "run_folder": run_folder,
     }

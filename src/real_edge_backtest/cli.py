@@ -51,6 +51,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run = commands.add_parser("run", help="run a backtest from a TOML config")
     run.add_argument("--config", type=Path, required=True, help="path to the run config")
+    run.add_argument(
+        "--holdout",
+        action="store_true",
+        help="allow a run on holdout data (ETHUSDT, SOLUSDT); marked as a holdout run",
+    )
 
     report = commands.add_parser("report", help="write the HTML report of a run folder")
     report.add_argument("--run", type=Path, required=True, help="run folder written by 'run'")
@@ -66,6 +71,7 @@ def _run(args: argparse.Namespace) -> int:
     from real_edge_backtest.analysis.metrics import analyze, load_run
     from real_edge_backtest.engine import load_config
     from real_edge_backtest.engine.results import summarize, write_run
+    from real_edge_backtest.holdout import check_holdout
     from real_edge_backtest.runner import (
         history_warnings,
         load_candles,
@@ -75,7 +81,9 @@ def _run(args: argparse.Namespace) -> int:
 
     try:
         config = load_config(args.config)
+        holdout = check_holdout(config.symbol, args.holdout)
         meta = run_metadata(config)
+        meta["holdout"] = holdout
         entries = experiments.read_log(config.experiment_log)
         window = meta["window"]
         seen = experiments.seen_window(entries, config.strategy, window["start"], window["end"])
@@ -83,7 +91,7 @@ def _run(args: argparse.Namespace) -> int:
         candles = load_candles(config)
         meta["first_candle"] = candles["open_time"].iloc[0]
         meta["warnings"] = history_warnings(candles, window["start"])
-        result = run_backtest(config, candles)
+        result = run_backtest(config, candles, holdout=args.holdout)
         meta["gaps"] = {
             **result.gap_summary(),
             "ignored_signals": result.counters.get("ignored_after_gap", 0),
@@ -111,6 +119,8 @@ def _run(args: argparse.Namespace) -> int:
 
     s = summarize(result)
     open_trades = len(result.trades) - s.trades
+    if holdout:
+        print(f"HOLDOUT RUN: {config.symbol} is holdout data (research protocol, docs/PLAN.md)")
     for warning in meta["warnings"]:
         print(f"WARNING: {warning}")
     print(f"Run {config.name}: {config.symbol} {config.interval}, {config.strategy}")

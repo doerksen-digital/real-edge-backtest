@@ -5,6 +5,7 @@ import pandas as pd
 from real_edge_backtest.data.intervals import interval_seconds
 from real_edge_backtest.data.paths import parquet_path
 from real_edge_backtest.engine import Backtest, Result, RunConfig
+from real_edge_backtest.holdout import check_holdout
 from real_edge_backtest.provenance import git_state, sha256_file, sha256_text
 from real_edge_backtest.strategies import STRATEGIES
 
@@ -66,7 +67,11 @@ def run_metadata(config: RunConfig) -> dict:
     }
 
 
-def run_backtest(config: RunConfig, data: pd.DataFrame | None = None) -> Result:
+def run_backtest(
+    config: RunConfig, data: pd.DataFrame | None = None, holdout: bool = False
+) -> Result:
+    """Run the engine. Holdout symbols need holdout=True (research protocol)."""
+    check_holdout(config.symbol, holdout)
     if config.strategy not in STRATEGIES:
         raise ValueError(f"unknown strategy {config.strategy!r}, known: {sorted(STRATEGIES)}")
     candles = load_candles(config) if data is None else data

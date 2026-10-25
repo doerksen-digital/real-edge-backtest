@@ -82,6 +82,10 @@ real-edge-backtest report --run runs/<UTC timestamp>-ema_vwap_full
 
 `report` writes `report.html` into the run folder (or `--out <file>`). The file is self-contained: inline CSS and SVG charts made with matplotlib, no scripts, no external assets.
 
+### Holdout data
+
+ETHUSDT (validation) and SOLUSDT (final test) are holdout data under the research protocol in [docs/PLAN.md](docs/PLAN.md). Their data can be downloaded and checked like any other, but `run` refuses a strategy run on them unless `--holdout` is given. With the flag, the run is marked as a holdout run in the output, `run.json`, the experiment log (`"holdout": true`) and the report header.
+
 ### Window
 
 `start` and `end` in `[strategy.params]` are UTC times compared with each candle's **close time**. A candle can trade if `start <= close time < end`, so `end` is exclusive. A position still open is closed with "Test end" at the close of the first candle that closes at or after `end`. Metrics, buy and hold and time in market only use the candles of this window, never the whole dataset.
