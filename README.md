@@ -80,7 +80,16 @@ How the engine works:
 
 Max drawdown is measured on the equity at every candle close, including open trades. It does not match TradingView's max drawdown, whose method is not documented. Parity run 2026: TradingView 1,697.05, ours 2,102.69 on close equity and 1,673.61 on closed trades only. Max drawdown is not a parity criterion.
 
-The parity test compares a run with a TradingView reference. Put `tv_summary.csv` and `tv_trades.csv` in `tests/fixtures/` (format in `tests/test_parity.py`). Without them the test is skipped.
+The parity test compares a run with a TradingView reference in `tests/fixtures/`. The reference files are TradingView output and stay local (gitignored). Without them the test is skipped.
+
+### Recreating the TradingView reference
+
+1. Chart: BINANCE:BTCUSDT, 1 hour, standard candles, chart time zone Europe/Zurich.
+2. Add the Pine script "EMA 9 / Rolling VWAP Cross v1". Inputs: daily trend filter on, daily EMA length 21, Start 2026-01-01 00:00, End 2026-10-24 00:00 (entered in chart time), all other inputs default. Properties as set by the script: capital 10,000, commission 0.05%, slippage 2 ticks, margin 0, bar detalization off.
+3. From the Strategy Tester, write `tests/fixtures/tv_summary.csv` with columns `metric,value` and these rows: `trade_count`, `profit_factor`, `net_pnl`, `winning_trades`, `max_drawdown`, `chart_timezone` (`Europe/Zurich`), `first_loaded_candle` (optional).
+4. From the list of trades, write `tests/fixtures/tv_trades.csv` with columns `number,side,entry_time,entry_price,exit_time,exit_price,exit_comment,net_pnl`. Times as shown in the chart time zone, format `YYYY-MM-DD HH:MM`. `side` is `long` or `short`. An empty `exit_comment` is not checked. Trades: #1 to #6, #44, #136 to #141, #153, #167 to #172 (#44 and #153 are reversals, which check position sizing).
+
+`configs/ema_vwap_parity.toml` holds the same window in UTC: 2025-12-31 23:00 to 2026-10-23 22:00.
 
 ## Credits
 
