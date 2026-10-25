@@ -48,7 +48,36 @@ def _build_parser() -> argparse.ArgumentParser:
 
     check = data_commands.add_parser("check", help="validate a stored dataset")
     _add_dataset_args(check)
+
+    run = commands.add_parser("run", help="run a backtest from a TOML config")
+    run.add_argument("--config", type=Path, required=True, help="path to the run config")
     return parser
+
+
+def _run(args: argparse.Namespace) -> int:
+    # Imported here so data commands do not load the engine.
+    from real_edge_backtest.engine import load_config
+    from real_edge_backtest.engine.results import summarize, write_run
+    from real_edge_backtest.runner import run_backtest
+
+    try:
+        config = load_config(args.config)
+        result = run_backtest(config)
+    except (FileNotFoundError, KeyError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    folder = write_run(result, config.runs_dir, config.name, config.source_text)
+    s = summarize(result)
+    open_trades = len(result.trades) - s.trades
+    print(f"Run {config.name}: {config.symbol} {config.interval}, {config.strategy}")
+    print(f"  fill model      {config.broker.fill_model}")
+    print(f"  trades          {s.trades}" + (f" (+{open_trades} open)" if open_trades else ""))
+    print(f"  win rate        {s.win_rate:.2%} ({s.winners} winners)")
+    print(f"  profit factor   {s.profit_factor:.3f}")
+    print(f"  net PnL         {s.net_pnl:,.2f}")
+    print(f"  max drawdown    {s.max_drawdown:,.2f}")
+    print(f"  output          {folder}")
+    return 0
 
 
 def _download(args: argparse.Namespace) -> int:
@@ -110,6 +139,8 @@ def _check(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.command == "run":
+        return _run(args)
     if args.command == "data" and args.data_command == "download":
         return _download(args)
     return _check(args)

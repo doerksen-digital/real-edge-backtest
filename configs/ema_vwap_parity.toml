@@ -1,0 +1,44 @@
+# Parity run against TradingView: BINANCE:BTCUSDT 1h, "EMA 9 / Rolling VWAP Cross v1"
+# with the daily trend filter ON (daily EMA 21). Indicators are warmed up on the full history
+# before the window.
+name = "ema_vwap_parity"
+
+[data]
+symbol = "BTCUSDT"
+interval = "1h"
+data_dir = "data"
+
+[strategy]
+name = "ema_vwap"
+
+[strategy.params]
+ema_length = 9
+vwap_bars = 24
+stop_atr = 2.0
+atr_length = 14
+use_trend = true
+trend_length = 21
+position_pct = 100
+sizing_slip_ticks = 2
+fee_reserve_pct = 0.05
+direction = "Both"
+# Start and End were typed into TradingView's input.time fields as 2026-01-01 00:00 and
+# 2026-10-24 00:00. TradingView reads those fields in the chart time zone (Europe/Zurich),
+# so they mean 2025-12-31 23:00 UTC (CET, +1) and 2026-10-23 22:00 UTC (CEST, +2).
+# Both are compared with time_close; End closes an open position with "Test end".
+start = "2025-12-31T23:00:00Z"
+end = "2026-10-23T22:00:00Z"
+
+# TradingView strategy Properties and BINANCE:BTCUSDT symbol info
+# (mintick 0.01, mincontract 0.00001, pointvalue 1).
+[broker]
+initial_capital = "10000"
+commission_pct = "0.05"
+slippage_ticks = 2
+tick_size = "0.01"
+lot_size = "0.00001"
+point_value = "1"
+fill_model = "tradingview"
+
+[output]
+runs_dir = "runs"

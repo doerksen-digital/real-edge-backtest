@@ -62,6 +62,35 @@ The download logic follows the official downloader in [binance/binance-public-da
 
 **Data license:** the Binance Vision dataset terms license the data under CC BY-NC-SA 4.0. They allow personal, non-production backtesting research. They forbid live trading execution, paid signals and other commercial use. The data is never committed to this repository.
 
+## Running a backtest
+
+A run is defined by a TOML config: data, strategy and parameters, broker settings and fill model. Example: [configs/ema_vwap_parity.toml](configs/ema_vwap_parity.toml).
+
+```bash
+real-edge-backtest run --config configs/ema_vwap_parity.toml
+```
+
+The command prints trade count, win rate, profit factor, net PnL and max drawdown. It writes `trades.csv`, `equity.csv` and a copy of the config to `runs/<UTC timestamp>-<name>/` (gitignored).
+
+How the engine works:
+
+- Bar by bar. Inside each bar, stops that the bar reaches fill first. Then the strategy runs on the closed bar, and market orders fill at that close plus slippage.
+- Prices are whole ticks, quantities whole lots and money is Decimal, so sizing and PnL have no float rounding errors.
+- Two fill models. `tradingview` follows TradingView's bar path (open, high, low, close if the open is nearer the high, otherwise open, low, high, close). `pessimistic` fills a stop before a target whenever both are inside one bar. Both fill an order passed by a gap at the open. `pessimistic` is the default; the parity config uses `tradingview`.
+
+Max drawdown is measured on the equity at every candle close, including open trades. It does not match TradingView's max drawdown, whose method is not documented. Parity run 2026: TradingView 1,697.05, ours 2,102.69 on close equity and 1,673.61 on closed trades only. Max drawdown is not a parity criterion.
+
+The parity test compares a run with a TradingView reference in `tests/fixtures/`. The reference files are TradingView output and stay local (gitignored). Without them the test is skipped.
+
+### Recreating the TradingView reference
+
+1. Chart: BINANCE:BTCUSDT, 1 hour, standard candles, chart time zone Europe/Zurich.
+2. Add the Pine script "EMA 9 / Rolling VWAP Cross v1". Inputs: daily trend filter on, daily EMA length 21, Start 2026-01-01 00:00, End 2026-10-24 00:00 (entered in chart time), all other inputs default. Properties as set by the script: capital 10,000, commission 0.05%, slippage 2 ticks, margin 0, bar detalization off.
+3. From the Strategy Tester, write `tests/fixtures/tv_summary.csv` with columns `metric,value` and these rows: `trade_count`, `profit_factor`, `net_pnl`, `winning_trades`, `max_drawdown`, `chart_timezone` (`Europe/Zurich`), `first_loaded_candle` (optional).
+4. From the list of trades, write `tests/fixtures/tv_trades.csv` with columns `number,side,entry_time,entry_price,exit_time,exit_price,exit_comment,net_pnl`. Times as shown in the chart time zone, format `YYYY-MM-DD HH:MM`. `side` is `long` or `short`. An empty `exit_comment` is not checked. Trades: #1 to #6, #44, #136 to #141, #153, #167 to #172 (#44 and #153 are reversals, which check position sizing).
+
+`configs/ema_vwap_parity.toml` holds the same window in UTC: 2025-12-31 23:00 to 2026-10-23 22:00.
+
 ## Credits
 
 The design borrows ideas from [backtesting.py](https://github.com/kernc/backtesting.py), [Freqtrade](https://github.com/freqtrade/freqtrade) and [NautilusTrader](https://github.com/nautechsystems/nautilus_trader). No code is copied from them. Code taken from permissively licensed projects is credited where it is used.
