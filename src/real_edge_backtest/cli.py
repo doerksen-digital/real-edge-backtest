@@ -124,6 +124,11 @@ def _run(args: argparse.Namespace) -> int:
         print("  seen window     unseen by earlier runs of this strategy")
     print(f"  variants        {variants} parameter sets of {config.strategy} logged so far")
     print(f"  fill model      {config.broker.fill_model}")
+    capped = result.counters.get("sizing_capped", 0)
+    print(
+        f"  sizing          {config.sizing.mode}"
+        + (f", {capped} entries capped at 100% of equity" if capped else "")
+    )
     g = meta["gaps"]
     print(
         f"  gaps            {g['count']} ({g['above_threshold']} with >= {g['min_gap_bars']} "

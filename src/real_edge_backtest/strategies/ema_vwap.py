@@ -14,41 +14,16 @@ entirely until max(vwap_bars, atr_length, ema_length) contiguous candles exist a
 entry uses a VWAP window that spans the gap. An open trade keeps its stop meanwhile.
 """
 
-import math
 from decimal import Decimal
-from fractions import Fraction
 
 import pandas as pd
 
 from real_edge_backtest.data.daily import daily_candles, previous_day_values
+from real_edge_backtest.engine.sizing import size
 from real_edge_backtest.engine.strategy import Strategy
 from real_edge_backtest.indicators import atr, crossover, crossunder, ema, pine_round, rolling_vwap
 
 LONG, SHORT = 1, -1
-
-
-def position_lots(
-    equity: Decimal,
-    position_pct: Decimal,
-    fee_reserve_pct: Decimal,
-    expected_fill: Decimal,
-    point_value: Decimal,
-    lot_size: Decimal,
-) -> int:
-    """floor(equity * pct/100 / (1 + fee/100) / (expected_fill * pointvalue) / lot) in lots.
-
-    Computed with exact fractions, so a quotient that is an exact integer never floors to the
-    integer below because of binary rounding.
-    """
-    equity = max(Decimal(0), equity)
-    if expected_fill <= 0 or lot_size <= 0:
-        return 0
-    notional = (
-        Fraction(equity) * Fraction(position_pct) / 100 / (1 + Fraction(fee_reserve_pct) / 100)
-    )
-    return math.floor(
-        notional / (Fraction(expected_fill) * Fraction(point_value)) / Fraction(lot_size)
-    )
 
 
 def _utc(value: str) -> pd.Timestamp:
@@ -101,6 +76,14 @@ class EmaVwap(Strategy):
         self.time_close_list = list(self.time_close)
         self.min_contiguous = max(p["vwap_bars"], p["atr_length"], p["ema_length"])
         self.counters["ignored_after_gap"] = 0
+        self.counters["sizing_capped"] = 0
+        if self.sizing.mode == "fixed_risk" and p["stop_atr"] <= 0:
+            raise ValueError("fixed_risk sizing needs the ATR stop (stop_atr > 0)")
+
+    def _mark_capped(self, capped: bool) -> None:
+        if capped and self.broker.open_trade is not None:
+            self.broker.open_trade.sizing_capped = True
+            self.counters["sizing_capped"] += 1
 
     def next(self) -> None:
         i, p, broker = self.i, self.p, self.broker
@@ -140,20 +123,23 @@ class EmaVwap(Strategy):
         side = LONG if up else SHORT
         cfg = broker.config
         expected_fill = (broker.bar.close + side * p["sizing_slip_ticks"]) * cfg.tick_size
-        lots = position_lots(
+        stop_ticks = int(max(1, pine_round(p["stop_atr"] * self.atr[i] / self.mintick)))
+        lots, capped = size(
+            self.sizing,
             self.equity,
             self.position_pct,
             self.fee_reserve_pct,
             expected_fill,
             cfg.point_value,
             cfg.lot_size,
+            stop_ticks * cfg.tick_size if p["stop_atr"] > 0 else Decimal(0),
         )
-        stop_ticks = int(max(1, pine_round(p["stop_atr"] * self.atr[i] / self.mintick)))
 
         if up:
             if long_allowed and lots > 0:
                 broker.cancel("S-Stop")
                 broker.entry(LONG, lots, "EMA above VWAP")
+                self._mark_capped(capped)
                 if p["stop_atr"] > 0:
                     broker.exit_stop("L-Stop", stop_ticks, "ATR stop")
             elif broker.position < 0:
@@ -163,6 +149,7 @@ class EmaVwap(Strategy):
             if short_allowed and lots > 0:
                 broker.cancel("L-Stop")
                 broker.entry(SHORT, lots, "EMA below VWAP")
+                self._mark_capped(capped)
                 if p["stop_atr"] > 0:
                     broker.exit_stop("S-Stop", stop_ticks, "ATR stop")
             elif broker.position > 0:

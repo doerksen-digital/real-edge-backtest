@@ -63,6 +63,7 @@ def trades_frame(result: Result) -> pd.DataFrame:
                 "commission": float(t.commission),
                 "net_pnl": float(t.net_pnl),
                 "touches_gap": result.touches_gap(t),
+                "sizing_capped": t.sizing_capped,
             }
         )
     return pd.DataFrame(rows)

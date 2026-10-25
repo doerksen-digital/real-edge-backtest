@@ -12,10 +12,12 @@ import numpy as np
 import pandas as pd
 
 from real_edge_backtest.engine.broker import Broker
+from real_edge_backtest.engine.sizing import SizingConfig
 
 
 class Strategy:
     params: dict[str, Any] = {}
+    sizing: SizingConfig = SizingConfig()  # set per run by Backtest
 
     def __init__(self, data: pd.DataFrame, broker: Broker, params: dict[str, Any]) -> None:
         unknown = set(params) - set(self.params)

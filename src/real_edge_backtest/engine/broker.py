@@ -37,6 +37,7 @@ class Trade:
     exit_comment: str = ""
     exit_commission: Decimal = Decimal(0)
     gross_pnl: Decimal = Decimal(0)
+    sizing_capped: bool = False  # the sizing mode wanted more than 100% of equity
 
     @property
     def commission(self) -> Decimal:

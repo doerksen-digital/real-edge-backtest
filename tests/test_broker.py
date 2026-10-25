@@ -10,7 +10,8 @@ import pytest
 from conftest import make_candles
 from real_edge_backtest.engine import Backtest, Broker, BrokerConfig, Result
 from real_edge_backtest.engine.fills import Bar, PriceOrder
-from real_edge_backtest.strategies.ema_vwap import EmaVwap, position_lots
+from real_edge_backtest.engine.sizing import position_lots
+from real_edge_backtest.strategies.ema_vwap import EmaVwap
 
 LONG, SHORT = 1, -1
 

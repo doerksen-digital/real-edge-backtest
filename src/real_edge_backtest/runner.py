@@ -56,6 +56,7 @@ def run_metadata(config: RunConfig) -> dict:
             "point_value": str(b.point_value),
             "fill_model": b.fill_model,
         },
+        "sizing": config.sizing.describe(),
         "criteria": config.criteria,
         "provenance": {
             **git_state(),
@@ -76,4 +77,5 @@ def run_backtest(config: RunConfig, data: pd.DataFrame | None = None) -> Result:
         config.params,
         interval=pd.Timedelta(seconds=interval_seconds(config.interval)),
         min_gap_bars=config.min_gap_bars,
+        sizing=config.sizing,
     ).run()

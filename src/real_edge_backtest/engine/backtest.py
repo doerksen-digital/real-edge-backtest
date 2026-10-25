@@ -22,6 +22,7 @@ import pandas as pd
 from real_edge_backtest.engine.broker import Broker, Trade
 from real_edge_backtest.engine.config import BrokerConfig
 from real_edge_backtest.engine.fills import Bar
+from real_edge_backtest.engine.sizing import SizingConfig
 from real_edge_backtest.engine.strategy import Strategy
 
 ONE_HOUR = pd.Timedelta(hours=1)
@@ -88,6 +89,7 @@ class Backtest:
         params: dict | None = None,
         interval: pd.Timedelta = ONE_HOUR,
         min_gap_bars: int = 3,
+        sizing: SizingConfig | None = None,
     ) -> None:
         if min_gap_bars < 1:
             raise ValueError("min_gap_bars must be at least 1")
@@ -97,6 +99,7 @@ class Backtest:
             data["open_time"], interval, min_gap_bars
         )
         self.min_gap_bars = min_gap_bars
+        self.sizing = sizing or SizingConfig()
         self.data = data
         self.strategy_cls = strategy_cls
         self.broker_config = broker
@@ -112,6 +115,7 @@ class Backtest:
 
         broker = Broker(self.broker_config)
         strategy = self.strategy_cls(self.data, broker, self.params)
+        strategy.sizing = self.sizing
         strategy.init()
 
         equity, positions = [], []
