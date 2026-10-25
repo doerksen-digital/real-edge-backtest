@@ -74,7 +74,8 @@ def _seen_text(seen: dict | None) -> str:
         return "unseen: no earlier run of this strategy family overlaps the window"
     return (
         f"seen: {seen['runs']} earlier runs overlap this window on "
-        f"{seen['overlap_days']:.1f} days, with {seen['param_sets']} distinct parameter sets"
+        f"{seen['overlap_days']:.1f} of {seen.get('window_days', 0):.1f} days, with "
+        f"{seen['param_sets']} distinct parameter sets"
     )
 
 

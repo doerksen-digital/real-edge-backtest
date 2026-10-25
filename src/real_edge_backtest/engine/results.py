@@ -74,6 +74,10 @@ def write_run(
     the position after the bar), config.toml and run.json (meta: window, settings, provenance)."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     folder = runs_dir / f"{stamp}-{name}"
+    suffix = 1
+    while folder.exists():  # two runs in the same second
+        suffix += 1
+        folder = runs_dir / f"{stamp}-{name}-{suffix}"
     folder.mkdir(parents=True, exist_ok=False)
     trades_frame(result).to_csv(folder / "trades.csv", index=False)
     equity = result.equity.assign(equity=result.equity["equity"].map(float))

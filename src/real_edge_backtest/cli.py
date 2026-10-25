@@ -62,21 +62,53 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run(args: argparse.Namespace) -> int:
     # Imported here so data commands do not load the engine.
+    from real_edge_backtest import experiments
+    from real_edge_backtest.analysis.metrics import analyze, load_run
     from real_edge_backtest.engine import load_config
     from real_edge_backtest.engine.results import summarize, write_run
     from real_edge_backtest.runner import run_backtest, run_metadata
 
     try:
         config = load_config(args.config)
+        meta = run_metadata(config)
+        entries = experiments.read_log(config.experiment_log)
+        window = meta["window"]
+        seen = experiments.seen_window(entries, config.strategy, window["start"], window["end"])
+        meta["seen_window"] = seen
         result = run_backtest(config)
     except (FileNotFoundError, KeyError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    meta = run_metadata(config)
     folder = write_run(result, config.runs_dir, config.name, config.source_text, meta)
+    a = analyze(load_run(folder))
+    entry = experiments.make_entry(
+        meta,
+        {
+            "trades": a.stats["trades"],
+            "net_pnl": a.stats["net_pnl"],
+            "return": a.total_return,
+            "profit_factor": a.stats["profit_factor"],
+            "max_drawdown_pct": a.max_drawdown[1],
+            "time_in_market": a.time_in_market,
+            "passed": a.passed,
+        },
+        folder.as_posix(),
+    )
+    experiments.append(config.experiment_log, entry)
+    variants = experiments.variant_count([*entries, entry], config.strategy)
+
     s = summarize(result)
     open_trades = len(result.trades) - s.trades
     print(f"Run {config.name}: {config.symbol} {config.interval}, {config.strategy}")
+    print(f"  window          {window['start']} to {window['end']} (candle close, end exclusive)")
+    if seen["runs"]:
+        print(
+            f"  seen window     {seen['runs']} earlier runs overlap on {seen['overlap_days']:.1f}"
+            f" of {seen['window_days']:.1f} days, {seen['param_sets']} parameter sets"
+        )
+    else:
+        print("  seen window     unseen by earlier runs of this strategy")
+    print(f"  variants        {variants} parameter sets of {config.strategy} logged so far")
     print(f"  fill model      {config.broker.fill_model}")
     print(f"  trades          {s.trades}" + (f" (+{open_trades} open)" if open_trades else ""))
     print(f"  win rate        {s.win_rate:.2%} ({s.winners} winners)")
@@ -84,6 +116,7 @@ def _run(args: argparse.Namespace) -> int:
     print(f"  net PnL         {s.net_pnl:,.2f}")
     print(f"  max drawdown    {s.max_drawdown:,.2f}")
     print(f"  output          {folder}")
+    print(f"  logged to       {config.experiment_log}")
     return 0
 
 
