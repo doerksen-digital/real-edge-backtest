@@ -1,0 +1,9 @@
+# H3: enter only if the cross still holds N bars later, at that bar's close.
+id = "H3"
+base = "configs/ema_vwap_full.toml"
+
+[set]
+"strategy.filters" = [{ name = "confirm", bars = 2 }]
+
+[grid]
+"strategy.filters.0.bars" = [1, 2, 3]

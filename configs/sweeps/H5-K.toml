@@ -1,0 +1,9 @@
+# H5, column T = 3: ATR trail with activation K 2 / 4 (K 3 runs in H5-T.toml).
+id = "H5-K"
+base = "configs/ema_vwap_full.toml"
+
+[set]
+"strategy.exits" = [{ name = "atr_trail", k = 3.0, t = 3.0 }]
+
+[grid]
+"strategy.exits.0.k" = [2.0, 4.0]

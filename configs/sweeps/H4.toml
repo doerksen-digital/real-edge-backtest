@@ -1,0 +1,9 @@
+# H4: stop to the entry fill price once a close was K ATR (at entry) in profit.
+id = "H4"
+base = "configs/ema_vwap_full.toml"
+
+[set]
+"strategy.exits" = [{ name = "breakeven", k = 2.0 }]
+
+[grid]
+"strategy.exits.0.k" = [1.5, 2.0, 3.0]

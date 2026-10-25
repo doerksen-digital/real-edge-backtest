@@ -1,0 +1,10 @@
+# H5, row K = 3: ATR trail with trail distance T 2 / 3 / 4. With H5-K.toml this is the base
+# point K 3 / T 3 and its four direct neighbors, 5 runs.
+id = "H5-T"
+base = "configs/ema_vwap_full.toml"
+
+[set]
+"strategy.exits" = [{ name = "atr_trail", k = 3.0, t = 3.0 }]
+
+[grid]
+"strategy.exits.0.t" = [2.0, 3.0, 4.0]

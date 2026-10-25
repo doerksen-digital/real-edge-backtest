@@ -1,0 +1,9 @@
+# H2: fixed_risk sizing, lose risk_pct of equity at the ATR stop, capped at 100% of equity.
+id = "H2"
+base = "configs/ema_vwap_full.toml"
+
+[set]
+"sizing.mode" = "fixed_risk"
+
+[grid]
+"sizing.risk_pct" = ["0.75", "1.0", "1.5"]

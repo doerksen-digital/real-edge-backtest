@@ -1,0 +1,9 @@
+# H8: 4h with the VWAP converted to the same time span (6 bars = 24 h); EMA 9 and ATR 14 stay in bars.
+id = "H8"
+base = "configs/ema_vwap_full.toml"
+
+[set]
+"data.timeframe" = "4h"
+
+[grid]
+"strategy.params.vwap_bars" = [4, 6, 9]

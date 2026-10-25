@@ -1,19 +1,23 @@
 # Hypotheses for ema_vwap, phase 4a
 
-Written after [diagnosis.md](diagnosis.md) and before any variant is run. Nothing here has been run.
+Written after [diagnosis.md](diagnosis.md) and before any variant was run. Approved on 2026-10-26 with changes: the H7 mechanism was replaced, the combination rule was added, and H6 waits for a separate approval. H1 to H5, H7 and H8 run in this round.
 
 ## Rules for every hypothesis
 
 - **Base:** `configs/ema_vwap_full.toml` on BTCUSDT 1h, 2018-01-01 to 2026-01-01. That means fees 0.05% per side, 2 ticks of slippage, pessimistic fills, and percent_equity sizing unless the hypothesis is about sizing.
 - **Change:** each hypothesis changes exactly what its rule says. Everything else stays at the base values.
-- **Sweep:** each hypothesis gets a sweep spec `configs/sweeps/<ID>.toml`, written before it runs, with its base value and the neighbor values below. Every point is a logged run.
+- **Sweep:** each hypothesis gets a sweep spec `configs/sweeps/<ID>.toml`, written before it runs, with its base value and the neighbor values below. The rule's fixed changes go in the spec's `[set]`, the 1 or 2 varied parameters in `[grid]`. H5 has two specs (`H5-T`, `H5-K`) for its five points. Every point is a logged run.
 - **New plug-ins:** a plug-in a hypothesis needs is implemented exactly as written here, with tests, before its sweep runs.
 - **Comparison:** every point is compared with the base run using `report --compare`. Of interest are the trades that disappeared, appeared or changed, and what happened to the base run's top 1% winners.
 - **Success (on top of each hypothesis's own criterion):**
   - the base value passes the run's `[criteria]`: PF ≥ 1.3, at least 100 trades, net PnL positive without the top 5 trades and without the top 1% (return method), and positive in both halves;
   - every neighbor value has PF ≥ 1.2 and positive net PnL in both halves (a plateau, not a peak).
-- **Combinations:** none in this round. A combination would be a new hypothesis with its own entry.
-- **Multiple testing:** this list has 24 runs. Each one raises the chance that a pass is luck. Only passing hypotheses whose neighbors also hold go to ETHUSDT, and they go unchanged.
+- **Combinations:** none in the single runs. After them, at most ONE combination is built, and only from hypotheses that each passed their own success criteria.
+  - It is defined in writing in this file before it runs.
+  - It uses only parameter values that were already run here, with no new values.
+  - Its runs count toward the variant total like any other.
+- **Candidate for ETH:** only that combination, or the single best hypothesis if no combination makes sense, is the candidate for ETHUSDT, and it goes unchanged. If no hypothesis passes, nothing goes to ETHUSDT.
+- **Multiple testing:** this list has 24 runs, 21 in this round (H6 waits). Each one raises the chance that a pass is luck, which is why the plateau rule and the single-candidate rule apply.
 
 ## Ranked list
 
@@ -26,8 +30,8 @@ Ranked by expected impact and strength of mechanism. Impact is the size of the p
 | 3 | H3 | Entry confirmation after N bars | low PF and fee drag | N | 3 |
 | 4 | H4 | Breakeven stop after K ATR | outlier dependence, low PF | K | 3 |
 | 5 | H5 | ATR trailing stop after a strong move | outlier dependence, low PF | K, T | 5 |
-| 6 | H6 | Skip the first cross after a one-sided stretch | low PF | L | 3 |
-| 7 | H7 | Long only | second-half decay, low PF | none | 1 |
+| 6 | H6 | Skip the first cross after a one-sided stretch (waits for approval) | low PF | L | 3 |
+| 7 | H7 | Long only (spot-executable) | unmodeled short costs | none | 1 |
 | 8 | H8 | 4h with a 24-hour VWAP | fee drag, second-half decay | VWAP bars | 3 |
 
 H5 runs the base point and its four direct neighbors, not the full 3 by 3 grid.
@@ -95,7 +99,7 @@ H5 runs the base point and its four direct neighbors, not the full 3 by 3 grid.
   - A cross that the trend filter allows is deferred N bars.
   - At the close of bar i+N: enter if the EMA is still on the cross side of the VWAP (EMA > VWAP for a long, EMA < VWAP for a short). Otherwise cancel. An opposite cross in between cancels it.
   - The trend filter is evaluated at the cross bar.
-  - An opposite position is closed at the cross bar, as with a blocked cross.
+  - An opposite position is closed at the cross bar, as with a blocked cross (accepted on 2026-10-26).
   - The entry is sized and stopped at the confirming bar.
 - **Parameter.**
 
@@ -157,6 +161,8 @@ H5 runs the base point and its four direct neighbors, not the full 3 by 3 grid.
 
 ### H6: Skip the first cross after a one-sided stretch
 
+**Status: not run.** H6 waits for a separate approval after it has been shown in full.
+
 - **Mechanism.**
   - When the EMA has stayed on one side of the VWAP for a long stretch, the 1h move is mature, and the first cross back is often a short bounce.
   - With the daily trend filter on, this is mostly a pullback inside the daily trend, and the cross then signals its end too early.
@@ -172,20 +178,24 @@ H5 runs the base point and its four direct neighbors, not the full 3 by 3 grid.
   |---|---|---|---|
 
 - **Expected effect.** About 300 fewer trades (the crosses_24 = 0 group has 299), and a higher PF.
-- **Success.** As in the general rules. The result must hold in both halves for all three values. If H3 passes, H6 is judged by its additional effect on top of H3 in a later combination entry, not here.
+- **Success.** As in the general rules. The result must hold in both halves for all three values. If H3 passes too, H6's additional effect on top of H3 could only be tested as the one combination allowed above.
 
-### H7: Long only
+### H7: Long only, the spot-executable variant
 
 - **Mechanism.**
-  - BTC rose over the sample, so a symmetric rule shorts against a positive drift.
-  - Diagnosis: shorts PF 1.26 in the first half and 0.84 in the second (-49% sum of returns). Longs PF 1.53 and 1.23.
-- **Caveat.** The drift is hindsight about the sample. ETH and SOL will show whether it carries over.
+  - A spot account cannot short. A short needs either margin, which means borrowed coins and borrowing interest, or futures, which pay or receive funding.
+  - Neither cost is modeled in this backtester, so the backtested shorts are cheaper than they would be in reality.
+  - H7 is the variant a spot account can execute with only the costs that are modeled: fees and slippage.
+  - For reference, not as the mechanism: shorts had PF 1.26 in the first half and 0.84 in the second (-49% sum of returns), longs 1.53 and 1.23.
 - **Rule.** `direction = "Long only"` (an existing parameter). A down cross only closes a long.
 - **Parameter.** None. One run.
 - **Expected effect.**
   - About 890 trades instead of 1,695. A higher PF and a lower fee total.
   - Time in market drops.
-- **Success.** The criteria pass with PF ≥ 1.3 and both halves positive. Without neighbor values, the plateau rule does not apply. H7 is therefore only a candidate if it also passes on ETH later.
+- **Success.**
+  - The criteria pass with PF ≥ 1.3 and both halves positive.
+  - 6 of the base's 17 top-1% winners were shorts. They disappear by construction, so the result has to come from the 11 long top-1% winners and the other longs. The top-1% check in `report --compare` counts the 11 longs.
+  - Without neighbor values, the plateau rule does not apply.
 
 ### H8: 4h with a 24-hour VWAP
 

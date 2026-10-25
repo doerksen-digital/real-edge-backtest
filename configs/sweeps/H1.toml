@@ -1,0 +1,6 @@
+# H1: same logic on higher timeframes, indicator lengths stay in bars (docs/research/hypotheses.md).
+id = "H1"
+base = "configs/ema_vwap_full.toml"
+
+[grid]
+"data.timeframe" = ["2h", "4h", "8h"]

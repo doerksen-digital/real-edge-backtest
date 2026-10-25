@@ -1,0 +1,6 @@
+# H7: long only, the variant a spot account can execute without unmodeled borrow or funding costs.
+id = "H7"
+base = "configs/ema_vwap_full.toml"
+
+[grid]
+"strategy.params.direction" = ["Long only"]
