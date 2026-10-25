@@ -29,13 +29,15 @@ The first target is short-term crypto strategies on 1h to 1d candles, starting w
 | Exchange choice | Researched after phase 2: cheapest exchange that is still safe for a Swiss resident, for spot and perpetuals |
 | Interface | CLI and HTML report first, UI later on top of the same result files |
 | Tests | Unit tests for the core engine only in the beginning |
+| Lockbox | No hard lockbox. Any window can be run at any time. The experiment log records every tested window and the report shows how much of its window was seen before. |
+| Dependencies | Current releases, bumped deliberately. A lockfile for reproducibility follows in phase 3 part B. |
 
 ## What gets reused
 
 | Source | License | How it is used |
 |---|---|---|
 | [binance/binance-public-data](https://github.com/binance/binance-public-data) | MIT | Download logic and checksum verification for historical candles |
-| [QuantStats](https://github.com/ranaroussi/quantstats) | Apache 2.0 | Dependency for return-based metrics and the tearsheet part of the report |
+| [QuantStats](https://github.com/ranaroussi/quantstats) | Apache 2.0 | Optional extra `report`: period-based metrics section of the report. Trade metrics are always our own. |
 | [backtesting.py](https://github.com/kernc/backtesting.py) | AGPL-3.0 | Design only: strategy class with `init()` and `next()`, `Backtest(data).run()` |
 | [Freqtrade](https://github.com/freqtrade/freqtrade) | GPL-3.0 | Design only: lookahead and recursive-formula analysis. Later a second reference engine for cross-checks. |
 | [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) | LGPL-3.0 | Design only: the same strategy code runs in backtest and live |
@@ -49,10 +51,10 @@ src/real_edge_backtest/
   indicators/   EMA, ATR, rolling VWAP and others, defined the same way as TradingView
   engine/       bar loop, broker (orders, fills, fees, slippage, stops), positions
   strategies/   one module per strategy, starting with ema_vwap
-  analysis/     trade metrics plus QuantStats metrics
-  experiments/  append-only run log and lockbox
-  report/       HTML report
-  cli.py        download, run, report, robustness
+  analysis/     trade metrics from run folders
+  experiments/  append-only run log, variant count and seen-window check
+  report/       HTML report, optional QuantStats section
+  cli.py        data download, data check, run, report
 ```
 
 Two fill models exist in the engine:
@@ -67,12 +69,27 @@ Two fill models exist in the engine:
 | 0. Setup | Repository, license, README, project config, CI | The empty project installs and the tests run on GitHub |
 | 1. Data | BTCUSDT 1h spot from 2018 to today | Checksums pass, no duplicates, all gaps listed and never filled, all times in UTC |
 | 2. Engine and parity | EMA 9 / rolling VWAP strategy in Python | Same trade list as the TradingView run for 2026 (entry times and sides), profit factor and trade count within a small tolerance, lookahead test passes |
-| 3. Report and log | One command produces the HTML report and a log entry | Every run can be reproduced from its log entry |
-| 4. Robustness | Parameter grid, walk-forward, lockbox, cost stress, Monte Carlo, ETH and SOL | EMA/VWAP goes through the full test on 2018 to 2026 |
+| 3. Report and log | Part A (built): trade metrics, HTML report, experiment log with seen-window check, readiness rule, gap rules, sizing modes. Part B: lockfile. | Every run can be reproduced from its log entry |
+| 4. Robustness | Parameter grid, walk-forward, cost stress, Monte Carlo, ETH and SOL | EMA/VWAP goes through the full test on 2018 to 2026 |
 | 5. Futures | Real funding history, leverage, liquidation, fees on notional | The same strategy runs on perpetuals with honest costs |
 | 6. Later | UI, live signals, paper trading | Only after phase 4 shows an edge |
 
 The exchange research happens between phase 2 and phase 3.
+
+## Phase 3 part A as built
+
+- **Trade metrics** (`analysis/metrics.py`) read only the run files. Every equity-based number uses the equity curve cut to the run window.
+- **HTML report** (`real-edge-backtest report --run <dir>`): one self-contained file with header, pass criteria, trade metrics, buy and hold, charts, per-year and halves tables, gap sensitivity, the trade list and an optional QuantStats section.
+- **Experiment log** (`experiments/log.jsonl`): append-only, one line per run, variant count per strategy family, seen-window check before each run.
+- **Readiness:** indicators use all history before Start. No trade until every indicator, including the previous day's daily values, exists. A warning appears if Start is less than 30 days after the first candle.
+- **Gaps:** positions survive gaps, a stop gapped past fills at the open, entries wait after gaps of 3 or more missing candles until the indicators have enough contiguous candles, and trades across gaps are marked.
+- **Sizing:** `percent_equity` (default, parity), `fixed_risk`, `fixed_notional`, capped at 100% of equity.
+
+Part B adds a lockfile so a run can be reproduced with the exact package versions. Its purpose is reproducibility.
+
+## Seen and unseen data
+
+EMA 21 for the daily trend filter was chosen on TradingView on January to October 2026. For `ema_vwap` that window is seen. 2018 to 2025 is unseen. The experiment log starts with those TradingView runs, so every report on 2026 shows the window as seen.
 
 ## Test scope at the start
 
@@ -85,7 +102,7 @@ Covered by unit tests:
 - indicator values against reference values
 - the lookahead test: cutting the data at a random point must not change any earlier signal
 
-Not covered yet: reports, CLI, data download.
+Added in phase 3: trade metrics, the report, the experiment log, readiness, gap rules and sizing modes. Not covered yet: data download.
 
 ## Pass criteria for a strategy
 
@@ -97,7 +114,7 @@ Fixed before a test runs. Net of fees and slippage:
 - positive in both halves of the test period
 - compared against buy and hold on return, drawdown and time in the market
 
-Robustness tests (neighbor parameters, walk-forward, lockbox) are judged against criteria written down before each run.
+The thresholds sit in the run config's `[criteria]` section, so they are fixed before the run and recorded with it. Robustness tests (neighbor parameters, walk-forward, unseen windows) are judged against criteria written down before each run.
 
 ## Out of scope for now
 
