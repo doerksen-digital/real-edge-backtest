@@ -62,6 +62,24 @@ The download logic follows the official downloader in [binance/binance-public-da
 
 **Data license:** the Binance Vision dataset terms license the data under CC BY-NC-SA 4.0. They allow personal, non-production backtesting research. They forbid live trading execution, paid signals and other commercial use. The data is never committed to this repository.
 
+## Running a backtest
+
+A run is defined by a TOML config: data, strategy and parameters, broker settings and fill model. Example: [configs/ema_vwap_parity.toml](configs/ema_vwap_parity.toml).
+
+```bash
+real-edge-backtest run --config configs/ema_vwap_parity.toml
+```
+
+The command prints trade count, win rate, profit factor, net PnL and max drawdown. It writes `trades.csv`, `equity.csv` and a copy of the config to `runs/<UTC timestamp>-<name>/` (gitignored).
+
+How the engine works:
+
+- Bar by bar. Inside each bar, stops that the bar reaches fill first. Then the strategy runs on the closed bar, and market orders fill at that close plus slippage.
+- Prices are whole ticks, quantities whole lots and money is Decimal, so sizing and PnL have no float rounding errors.
+- Two fill models. `tradingview` follows TradingView's bar path (open, high, low, close if the open is nearer the high, otherwise open, low, high, close). `pessimistic` fills a stop before a target whenever both are inside one bar. Both fill an order passed by a gap at the open. `pessimistic` is the default; the parity config uses `tradingview`.
+
+The parity test compares a run with a TradingView reference. Put `tv_summary.csv` and `tv_trades.csv` in `tests/fixtures/` (format in `tests/test_parity.py`). Without them the test is skipped.
+
 ## Credits
 
 The design borrows ideas from [backtesting.py](https://github.com/kernc/backtesting.py), [Freqtrade](https://github.com/freqtrade/freqtrade) and [NautilusTrader](https://github.com/nautechsystems/nautilus_trader). No code is copied from them. Code taken from permissively licensed projects is credited where it is used.
