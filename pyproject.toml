@@ -11,7 +11,14 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Esra Dan Doerksen" }]
 requires-python = ">=3.11"
-dependencies = []
+# Newest release at least 30 days old when added. Bump deliberately.
+dependencies = [
+    "pandas>=3.0.6,<3.1",
+    "pyarrow>=25.0.1,<26",
+]
+
+[project.scripts]
+real-edge-backtest = "real_edge_backtest.cli:main"
 
 [project.optional-dependencies]
 dev = [
