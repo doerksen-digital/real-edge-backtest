@@ -29,3 +29,4 @@ Thumbs.db
 
 # TradingView reference for the parity test stays local (see README).
 /tests/fixtures/tv_*.csv
+/tests/fixtures/ny_range/
