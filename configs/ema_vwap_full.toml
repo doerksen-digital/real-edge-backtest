@@ -1,0 +1,55 @@
+# Full spot history: "EMA 9 / Rolling VWAP Cross v1" with the parity strategy values (daily
+# trend filter ON, daily EMA 21), pessimistic fills and 3,000 USD. Fees and slippage stay at
+# the parity values until the exchange decision.
+name = "ema_vwap_full"
+
+[data]
+symbol = "BTCUSDT"
+interval = "1h"
+data_dir = "data"
+
+[strategy]
+name = "ema_vwap"
+
+[strategy.params]
+ema_length = 9
+vwap_bars = 24
+stop_atr = 2.0
+atr_length = 14
+use_trend = true
+trend_length = 21
+position_pct = 100
+sizing_slip_ticks = 2
+fee_reserve_pct = 0.05
+direction = "Both"
+# Compared with the candle close time; End is exclusive. The last bar that can trade opens
+# 2025-12-31 22:00 UTC; an open trade is closed with "Test end" at the close of the
+# 2025-12-31 23:00 bar.
+start = "2018-01-01T00:00:00Z"
+end = "2026-01-01T00:00:00Z"
+
+[sizing]
+mode = "percent_equity"
+
+[broker]
+initial_capital = "3000"
+commission_pct = "0.05"
+slippage_ticks = 2
+tick_size = "0.01"
+lot_size = "0.00001"
+point_value = "1"
+fill_model = "pessimistic"
+
+[gaps]
+min_gap_bars = 3
+
+# Pass criteria, fixed before the run.
+[criteria]
+min_profit_factor = 1.3
+min_trades = 30
+without_top_n = 5
+top_n = [1, 3, 5]
+
+[output]
+runs_dir = "runs"
+experiment_log = "experiments/log.jsonl"
