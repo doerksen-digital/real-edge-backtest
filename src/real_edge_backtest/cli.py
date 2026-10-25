@@ -51,32 +51,102 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run = commands.add_parser("run", help="run a backtest from a TOML config")
     run.add_argument("--config", type=Path, required=True, help="path to the run config")
+
+    report = commands.add_parser("report", help="write the HTML report of a run folder")
+    report.add_argument("--run", type=Path, required=True, help="run folder written by 'run'")
+    report.add_argument(
+        "--out", type=Path, help="HTML file to write (default: report.html in the run folder)"
+    )
     return parser
 
 
 def _run(args: argparse.Namespace) -> int:
     # Imported here so data commands do not load the engine.
+    from real_edge_backtest import experiments
+    from real_edge_backtest.analysis.metrics import analyze, load_run
     from real_edge_backtest.engine import load_config
     from real_edge_backtest.engine.results import summarize, write_run
-    from real_edge_backtest.runner import run_backtest
+    from real_edge_backtest.runner import (
+        history_warnings,
+        load_candles,
+        run_backtest,
+        run_metadata,
+    )
 
     try:
         config = load_config(args.config)
-        result = run_backtest(config)
+        meta = run_metadata(config)
+        entries = experiments.read_log(config.experiment_log)
+        window = meta["window"]
+        seen = experiments.seen_window(entries, config.strategy, window["start"], window["end"])
+        meta["seen_window"] = seen
+        candles = load_candles(config)
+        meta["first_candle"] = candles["open_time"].iloc[0]
+        meta["warnings"] = history_warnings(candles, window["start"])
+        result = run_backtest(config, candles)
+        meta["gaps"] = {
+            **result.gap_summary(),
+            "ignored_signals": result.counters.get("ignored_after_gap", 0),
+        }
     except (FileNotFoundError, KeyError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    folder = write_run(result, config.runs_dir, config.name, config.source_text)
+    folder = write_run(result, config.runs_dir, config.name, config.source_text, meta)
+    a = analyze(load_run(folder))
+    entry = experiments.make_entry(
+        meta,
+        {
+            "trades": a.stats["trades"],
+            "net_pnl": a.stats["net_pnl"],
+            "return": a.total_return,
+            "profit_factor": a.stats["profit_factor"],
+            "max_drawdown_pct": a.max_drawdown[1],
+            "time_in_market": a.time_in_market,
+            "passed": a.passed,
+        },
+        folder.as_posix(),
+    )
+    experiments.append(config.experiment_log, entry)
+    variants = experiments.variant_count([*entries, entry], config.strategy)
+
     s = summarize(result)
     open_trades = len(result.trades) - s.trades
+    for warning in meta["warnings"]:
+        print(f"WARNING: {warning}")
     print(f"Run {config.name}: {config.symbol} {config.interval}, {config.strategy}")
+    print(f"  window          {window['start']} to {window['end']} (candle close, end exclusive)")
+    print(f"  seen window     {experiments.describe_seen(seen)}")
+    print(f"  variants        {variants} parameter sets of {config.strategy} logged so far")
     print(f"  fill model      {config.broker.fill_model}")
+    capped = result.counters.get("sizing_capped", 0)
+    print(
+        f"  sizing          {config.sizing.mode}"
+        + (f", {capped} entries capped at 100% of equity" if capped else "")
+    )
+    g = meta["gaps"]
+    print(
+        f"  gaps            {g['count']} ({g['above_threshold']} with >= {g['min_gap_bars']} "
+        f"missing), {g['ignored_signals']} crosses ignored after gaps"
+    )
     print(f"  trades          {s.trades}" + (f" (+{open_trades} open)" if open_trades else ""))
     print(f"  win rate        {s.win_rate:.2%} ({s.winners} winners)")
     print(f"  profit factor   {s.profit_factor:.3f}")
     print(f"  net PnL         {s.net_pnl:,.2f}")
     print(f"  max drawdown    {s.max_drawdown:,.2f}")
     print(f"  output          {folder}")
+    print(f"  logged to       {config.experiment_log}")
+    return 0
+
+
+def _report(args: argparse.Namespace) -> int:
+    from real_edge_backtest.report.html import write_report
+
+    try:
+        path = write_report(args.run, args.out)
+    except (FileNotFoundError, KeyError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    print(f"Report written to {path}")
     return 0
 
 
@@ -141,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "run":
         return _run(args)
+    if args.command == "report":
+        return _report(args)
     if args.command == "data" and args.data_command == "download":
         return _download(args)
     return _check(args)

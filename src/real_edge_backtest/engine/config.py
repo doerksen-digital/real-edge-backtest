@@ -6,6 +6,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from real_edge_backtest.engine.sizing import SizingConfig
+
 FILL_MODELS = ("tradingview", "pessimistic")
 
 
@@ -37,7 +39,11 @@ class RunConfig:
     strategy: str
     params: dict[str, Any] = field(default_factory=dict)
     broker: BrokerConfig = field(default_factory=BrokerConfig)
+    sizing: SizingConfig = field(default_factory=SizingConfig)
+    min_gap_bars: int = 3  # [gaps]: gaps this long block entries until indicators recover
     runs_dir: Path = Path("runs")
+    experiment_log: Path = Path("experiments/log.jsonl")
+    criteria: dict[str, Any] = field(default_factory=dict)  # pass criteria, read by the report
     source_text: str = ""
 
 
@@ -53,6 +59,8 @@ def load_config(path: Path) -> RunConfig:
     broker = raw.get("broker", {})
     strategy = raw.get("strategy", {})
     defaults = BrokerConfig()
+    sizing = raw.get("sizing", {})
+    sizing_defaults = SizingConfig()
     return RunConfig(
         name=raw["name"],
         symbol=data["symbol"].upper(),
@@ -69,6 +77,14 @@ def load_config(path: Path) -> RunConfig:
             point_value=_decimal(broker.get("point_value", defaults.point_value)),
             fill_model=broker.get("fill_model", defaults.fill_model),
         ),
+        sizing=SizingConfig(
+            mode=sizing.get("mode", sizing_defaults.mode),
+            risk_pct=_decimal(sizing.get("risk_pct", sizing_defaults.risk_pct)),
+            notional_usd=_decimal(sizing.get("notional_usd", sizing_defaults.notional_usd)),
+        ),
+        min_gap_bars=int(raw.get("gaps", {}).get("min_gap_bars", 3)),
         runs_dir=Path(raw.get("output", {}).get("runs_dir", "runs")),
+        experiment_log=Path(raw.get("output", {}).get("experiment_log", "experiments/log.jsonl")),
+        criteria=dict(raw.get("criteria", {})),
         source_text=text,
     )

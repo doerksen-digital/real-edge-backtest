@@ -10,7 +10,8 @@ import pytest
 from conftest import make_candles
 from real_edge_backtest.engine import Backtest, Broker, BrokerConfig, Result
 from real_edge_backtest.engine.fills import Bar, PriceOrder
-from real_edge_backtest.strategies.ema_vwap import EmaVwap, position_lots
+from real_edge_backtest.engine.sizing import position_lots
+from real_edge_backtest.strategies.ema_vwap import EmaVwap
 
 LONG, SHORT = 1, -1
 
@@ -209,6 +210,7 @@ class Forced(EmaVwap):
         self.cross_down = np.array([self.down.get(i, False) for i in range(n)])
         self.daily_ema_prev = np.full(n, 100.0)
         self.daily_close_prev = np.array([100.0 + self.trend.get(i, 0) for i in range(n)])
+        self.contiguous_bars = np.full(n, 10_000)  # no gap block on short synthetic data
 
 
 def run_forced(candles: pd.DataFrame, **signals) -> Result:

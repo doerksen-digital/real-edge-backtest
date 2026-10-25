@@ -11,8 +11,8 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Esra Dan Doerksen" }]
 requires-python = ">=3.11"
-# Newest release at least 30 days old when added. Bump deliberately.
 dependencies = [
+    "matplotlib>=3.11.2,<3.12",
     "numpy>=2.5.3,<2.5.4",
     "pandas>=3.0.6,<3.1",
     "pyarrow>=25.0.1,<26",
@@ -22,6 +22,11 @@ dependencies = [
 real-edge-backtest = "real_edge_backtest.cli:main"
 
 [project.optional-dependencies]
+# Period-based metrics section of the HTML report. Pulls in yfinance, scipy and seaborn;
+# the report works without it.
+report = [
+    "quantstats>=0.0.86,<0.1",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
