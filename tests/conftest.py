@@ -30,3 +30,15 @@ def random_walk(n: int, seed: int, start: str = "2025-01-01T00:00:00Z") -> pd.Da
     lows = np.minimum(opens, closes) - np.round(np.abs(rng.normal(0, 40, n)), 2)
     volumes = np.round(rng.uniform(10, 100, n), 5)
     return make_candles(opens, highs, lows, closes, volumes, start=start)
+
+
+def random_walk_5m(n: int, seed: int, start: str = "2026-01-05T05:00:00Z") -> pd.DataFrame:
+    """5-minute candles on the 0.01 tick grid with a mild random walk."""
+    rng = np.random.default_rng(seed)
+    closes = np.round(30000 + np.cumsum(rng.normal(0, 15, n)), 2)
+    opens = np.round(np.concatenate(([closes[0]], closes[:-1])), 2)
+    highs = np.maximum(opens, closes) + np.round(np.abs(rng.normal(0, 8, n)), 2)
+    lows = np.minimum(opens, closes) - np.round(np.abs(rng.normal(0, 8, n)), 2)
+    candles = make_candles(opens, highs, lows, closes, np.round(rng.uniform(1, 10, n), 5))
+    candles["open_time"] = pd.date_range(start, periods=n, freq="5min")
+    return candles
