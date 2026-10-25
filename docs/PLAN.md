@@ -50,7 +50,7 @@ src/real_edge_backtest/
   data/         download, checksum check, Parquet store, gap and duplicate check
   indicators/   EMA, ATR, rolling VWAP and others, defined the same way as TradingView
   engine/       bar loop, broker (orders, fills, fees, slippage, stops), positions
-  strategies/   one module per strategy, starting with ema_vwap
+  strategies/   one module per strategy: ema_vwap, ny_range
   analysis/     trade metrics from run folders
   experiments/  append-only run log, variant count and seen-window check
   report/       HTML report, optional QuantStats section
@@ -61,6 +61,8 @@ Two fill models exist in the engine:
 
 - **TradingView-compatible**, used for the parity test. It follows TradingView's documented bar path: if the open is nearer the high, the path is open, high, low, close, otherwise open, low, high, close.
 - **Pessimistic**, the default for real research. If a stop and a target are both inside one candle, the stop is assumed to fill first.
+
+The broker places exits as a stop in ticks from the entry (`exit_stop`) or as a bracket of a stop and a limit at absolute levels, one cancelling the other (`exit_bracket`). Slippage applies to stop fills only. Every run counts the exits on a candle that held both bracket levels (`both_in_bar`), which shows how much the fill model choice matters.
 
 ## Phases
 
@@ -90,6 +92,14 @@ Part B adds a lockfile so a run can be reproduced with the exact package version
 ## Phase 4a: diagnosis and hypotheses
 
 Built on `feat/phase-4a-research`: ETH and SOL holdout data behind `--holdout`, cost, side, tail and rolling sections in the report, `trades_enriched.csv` (entry features and excursions), `report --compare`, `sweep`, entry filter and exit plug-ins (with deferred entries), higher timeframes built from 1h, and `analysis/diagnosis.py`. The BTC diagnosis is in [research/diagnosis.md](research/diagnosis.md), the hypotheses in [research/hypotheses.md](research/hypotheses.md). Hypotheses run only after the list is approved.
+
+## NY 4H Range Re-entry
+
+Built on `feat/ny-range-strategy`: `ny_range`, a port of the Pine v6 script "NY 4H Range Re-entry (BTCUSDT 5m)" on BTCUSDT spot 5m from 2018 (rules in the README). Engine additions: `exit_bracket`, and `exit_kind` and `both_in_bar` per trade. A rule not in the script: a NY day whose 00:00 to 04:00 range window misses a candle does not trade, and these days are counted (`skipped_days`). Parity with TradingView uses hand-copied trades from October 2026 (`tests/test_parity_ny_range.py`).
+
+Full-history runs: 2018-01-01 to 2026-10-01 (NY midnight), pessimistic fills, 0.05% commission, 2 ticks, 3,000 USD, eight variants: through-the-range "Enter in trend direction" or "Treat as opposite breakout", `percent_equity` 95% or `fixed_risk` 1%, midnight exit "Close all" or "Close only in loss". The script was tuned on TradingView in October 2026, so that month is seen for `ny_range` and stays out of the full-history window.
+
+Open points: TradingView's rounding of stop and target prices and its fee reserve at 95% of equity (both settled by the parity run), and whether `strategy.openprofit` includes commission (an extra parity pass with "Close only in loss").
 
 ## Seen and unseen data
 

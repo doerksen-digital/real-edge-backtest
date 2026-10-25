@@ -66,21 +66,39 @@ The download logic follows the official downloader in [binance/binance-public-da
 
 ## Running a backtest
 
-A run is defined by a TOML config: data, strategy and parameters, sizing, broker settings and fill model, gap threshold and pass criteria. Examples: [configs/ema_vwap_parity.toml](configs/ema_vwap_parity.toml) (TradingView parity, 2026) and [configs/ema_vwap_full.toml](configs/ema_vwap_full.toml) (2018 to 2025, pessimistic fills, 3,000 USD) and [configs/ema_vwap_full_fixed.toml](configs/ema_vwap_full_fixed.toml) (the same with a fixed notional of 3,000 USD per trade).
+A run is defined by a TOML config: data, strategy and parameters, sizing, broker settings and fill model, gap threshold and pass criteria. Examples: [configs/ema_vwap_parity.toml](configs/ema_vwap_parity.toml) (TradingView parity, 2026) and [configs/ema_vwap_full.toml](configs/ema_vwap_full.toml) (2018 to 2025, pessimistic fills, 3,000 USD) and [configs/ema_vwap_full_fixed.toml](configs/ema_vwap_full_fixed.toml) (the same with a fixed notional of 3,000 USD per trade). The NY range strategy has [configs/ny_range_parity.toml](configs/ny_range_parity.toml) and eight full-history configs `configs/ny_range_full_*.toml` (see [NY 4H Range Re-entry](#ny-4h-range-re-entry)).
 
 ```bash
 real-edge-backtest run --config configs/ema_vwap_full.toml
 real-edge-backtest report --run runs/<UTC timestamp>-ema_vwap_full
 ```
 
-`run` prints the window, the seen-window check, the number of logged variants, gap and sizing notes, trade count, win rate, profit factor, net PnL and max drawdown. It writes to `runs/<UTC timestamp>-<name>/` (gitignored):
+`run` prints the window, the seen-window check, the number of logged variants, gap and sizing notes, skipped days (strategies with a range-gap rule), exits with stop and target inside one candle, trade count, win rate, profit factor, net PnL and max drawdown. It writes to `runs/<UTC timestamp>-<name>/` (gitignored):
 
-- `trades.csv`: every trade, with `touches_gap` and `sizing_capped`
+- `trades.csv`: every trade, with `touches_gap`, `sizing_capped`, `exit_kind` (`stop`, `limit`, empty for a market exit) and `both_in_bar` (the exit candle held both bracket levels, so the fill model decided the exit)
 - `equity.csv`: every candle of the dataset with close time, open, close, position after the bar and equity at the close
-- `run.json`: window, parameters, broker and sizing settings, pass criteria, git commit and dirty flag, SHA-256 of the config and of the dataset, seen window, gap counts, warnings
+- `run.json`: window, parameters, broker and sizing settings, pass criteria, git commit and dirty flag, SHA-256 of the config and of the dataset, seen window, gap counts (`gaps.skipped_days` for ny_range), `bracket.both_in_bar`, warnings
 - `config.toml`: a copy of the config
 
 `report` writes `report.html` into the run folder (or `--out <file>`). The file is self-contained: inline CSS and SVG charts made with matplotlib, no scripts, no external assets.
+
+### NY 4H Range Re-entry
+
+`ny_range` is a port of the Pine v6 script "NY 4H Range Re-entry (BTCUSDT 5m)" on 5m candles. All times are New York time (`America/New_York`).
+
+- **Range:** high and low of the candles whose open time is inside `range_session` (default `0000-0400`, so 00:00 to 03:55). The session is wall time: 48 candles on a normal day, 36 on the spring-forward day and 60 on the fall-back day. The first candle after the session makes the range ready.
+- **Breakout:** a close below the range low starts a downside breakout, a close above the high an upside one. The breakout tracks its extreme (lowest low or highest high) through the entry candle.
+- **Re-entry:** the first close back inside opens a long (after a downside breakout) or a short at that close. Stop: the extreme minus (long) or plus (short) `sl_buffer_pct`. Target: `rr` times the risk, measured from the entry (`tp_mode = "From entry"`) or from the range edge (`"From range boundary"`, skipped if the target is on the wrong side of the entry).
+- **Through the range:** a close straight through the range after a breakout. `thru_mode = "Enter in trend direction"` opens a trade that way with `thru_factor` times the original risk (only with TP from entry); `"Treat as opposite breakout"` starts a breakout on the other side. Either way the first breakout is reset.
+- **One trade at a time.** The candle on which a stop or target fills can already start a new breakout.
+- **Midnight exit** (`midnight_exit`): `"Close all"` (default), `"Off"`, `"Close only in profit"`, `"Close only in loss"` (by the open profit at that close, without commission until the parity check settles it). It closes at the close of the last candle of the NY day; when it is not `"Off"`, no trade opens on that candle. If the 23:55 candle is missing, there is no midnight exit that day, as in the script.
+- **Day reset:** the first candle of a new NY day (the day of the month changes) deletes the range and any pending breakout. An open trade is not touched.
+- **Weekends** (NY day) are included by default (`include_weekends`).
+- **Price levels:** Pine computes stop and target as floats. They become ticks by rounding to the nearest tick, ties up (as `math.round_to_mintick`). TradingView does not document its rule; the parity check confirms it, because a target fill has no slippage and shows TradingView's rounded level directly.
+- **Sizing:** `percent_equity` with `position_pct = 95`, as in the script. `fixed_risk` sizes on the distance from the expected fill (close plus `sizing_slip_ticks`) to the stop level.
+- **Window:** `start` and `end` as for `ema_vwap` (candle close time, end exclusive, "Test end").
+
+The order of operations is in the docstring of [strategies/ny_range.py](src/real_edge_backtest/strategies/ny_range.py).
 
 ### Holdout data
 
@@ -101,6 +119,7 @@ Gaps are exchange downtime. They are never filled.
 - An open position and its stop live through a gap. If the first candle after a gap opens beyond the stop, the stop fills at that open (plus slippage), in both fill models.
 - After a gap of at least `[gaps] min_gap_bars` missing candles (default 3), crosses are ignored until `max(vwap_bars, atr_length, ema_length)` contiguous candles exist again. No entry then uses a VWAP window that spans the gap. An ignored cross does not close an open trade either.
 - Every trade open across a missing candle is marked `touches_gap`. The report shows the trade metrics with and without these trades.
+- `ny_range`: a NY day whose range window misses any candle builds no range and does not trade. `run`, `run.json` and the report count these days (`skipped_days`), including days without any candle.
 
 ### Sizing
 
@@ -171,9 +190,10 @@ There is no hard lockbox. The log makes it visible when a window has already bee
 
 How the engine works:
 
-- Bar by bar. Inside each bar, stops that the bar reaches fill first. Then the strategy runs on the closed bar, and market orders fill at that close plus slippage.
+- Bar by bar. Inside each bar, stops and limits that the bar reaches fill first. Then the strategy runs on the closed bar, and market orders fill at that close plus slippage.
 - Prices are whole ticks, quantities whole lots and money is Decimal, so sizing and PnL have no float rounding errors.
-- Two fill models. `tradingview` follows TradingView's bar path (open, high, low, close if the open is nearer the high, otherwise open, low, high, close). `pessimistic` fills a stop before a target whenever both are inside one bar. Both fill an order passed by a gap at the open. `pessimistic` is the default; the parity config uses `tradingview`.
+- Two fill models. `tradingview` follows TradingView's bar path (open, high, low, close if the open is nearer the high, otherwise open, low, high, close). `pessimistic` fills a stop before a target whenever both are inside one bar. Both fill an order passed by a gap at the open. `pessimistic` is the default; the parity configs use `tradingview`.
+- Exit commands: `exit_stop` (a stop a number of ticks from the entry fill), `move_stop` (tighten a stop) and `exit_bracket(stop_id, stop_level, limit_id, limit_level, comment)` (a stop and a limit at absolute tick levels, one cancelling the other). Slippage applies to stop fills only, never to limit fills.
 
 Max drawdown is measured on the equity at every candle close, including open trades. It does not match TradingView's max drawdown, whose method is not documented. Parity run 2026: TradingView 1,697.05, ours 2,102.69 on close equity and 1,673.61 on closed trades only. Max drawdown is not a parity criterion.
 
@@ -187,6 +207,42 @@ The parity test compares a run with a TradingView reference in `tests/fixtures/`
 4. From the list of trades, write `tests/fixtures/tv_trades.csv` with columns `number,side,entry_time,entry_price,exit_time,exit_price,exit_comment,net_pnl`. Times as shown in the chart time zone, format `YYYY-MM-DD HH:MM`. `side` is `long` or `short`. An empty `exit_comment` is not checked. Trades: #1 to #6, #44, #136 to #141, #153, #167 to #172 (#44 and #153 are reversals, which check position sizing).
 
 `configs/ema_vwap_parity.toml` holds the same window in UTC: 2025-12-31 23:00 to 2026-10-23 22:00.
+
+### Recreating the TradingView reference for ny_range
+
+The files are written by hand from the Strategy Tester and go into `tests/fixtures/ny_range/` (gitignored). `tests/test_parity_ny_range.py` runs `configs/ny_range_parity.toml` and compares.
+
+1. Chart: BINANCE:BTCUSDT, 5 minutes, standard candles, chart time zone America/New_York.
+2. Add the Pine script "NY 4H Range Re-entry (BTCUSDT 5m)" with all inputs at their defaults. Properties: initial capital 3,000, order size 95% of equity (set by the script), commission 0.1%, slippage 2 ticks, margin long and short 100%, bar magnifier off.
+3. Scroll the chart to the very first loaded candle and note its time (`first_loaded_candle`). Note the time of the last closed candle when you copy (`last_loaded_candle`).
+4. `tv_summary.csv`, columns `metric,value`, from the Strategy Tester overview (closed trades only):
+
+   ```csv
+   metric,value
+   trade_count,34
+   profit_factor,1.123
+   net_pnl,45.67
+   chart_timezone,America/New_York
+   first_loaded_candle,2026-10-04 13:05
+   last_loaded_candle,2026-10-26 09:55
+   ```
+
+5. `tv_trades.csv`, one row per closed trade from the list of trades, all of them, no open trade. Columns `number,side,entry_time,entry_price,exit_time,exit_price,exit_comment,qty,net_pnl`:
+
+   ```csv
+   number,side,entry_time,entry_price,exit_time,exit_price,exit_comment,qty,net_pnl
+   1,short,2026-10-05 04:10,86429.98,2026-10-05 04:45,86120.00,Short exit,0.0285,3.92
+   ```
+
+   - `number`: the trade number
+   - `side`: `long` or `short`, from the entry row's type
+   - `entry_time`, `entry_price`: date, time and price of the entry row, time as shown in the chart time zone, format `YYYY-MM-DD HH:MM`
+   - `exit_time`, `exit_price`: the same from the exit row
+   - `exit_comment`: the exit row's signal, exactly as shown (for example `Long exit`, `Short exit`, `Midnight exit`)
+   - `qty`: the position size in BTC
+   - `net_pnl`: the trade's net profit in USD, negative for a loss, no thousands separators
+
+The test leaves out trades entered on the NY day of `first_loaded_candle` (unless it opens at 00:00), because TradingView's range on that day can be incomplete. It first checks that the trade list adds up to the summary, so a missed row shows up as a copy error. A `qty` difference is a warning: its ratio tells whether TradingView keeps the fee reserve at 95% (`fee_reserve_pct`).
 
 ## Credits
 
