@@ -10,6 +10,7 @@ never parsed.
 """
 
 import hashlib
+import http.client
 import time
 import urllib.error
 import urllib.request
@@ -43,7 +44,8 @@ class DownloadResult:
 
 
 def _get(url: str) -> bytes | None:
-    """GET a URL. Returns None on 404. Retries 429, 5xx and network errors with backoff."""
+    """GET a URL. Returns None on 404. Retries 429, 5xx and network errors (including dropped
+    connections) with backoff."""
     delay = BACKOFF_START_SECONDS
     last_error: Exception | None = None
     for attempt in range(MAX_RETRIES + 1):
@@ -59,7 +61,12 @@ def _get(url: str) -> bytes | None:
                 raise ArchiveError(f"HTTP {error.code} for {url}") from error
             last_error = error
             wait = _retry_after(error) or delay
-        except (urllib.error.URLError, TimeoutError) as error:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionError,
+            http.client.HTTPException,
+        ) as error:
             last_error = error
             wait = delay
         if attempt < MAX_RETRIES:
