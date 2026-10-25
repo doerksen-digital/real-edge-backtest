@@ -41,8 +41,9 @@ class Strategy:
 
     @property
     def equity(self) -> Decimal:
+        """strategy.equity at this close, as used for sizing (see Broker.sizing_equity)."""
         assert self.broker.bar is not None
-        return self.broker.equity(self.broker.bar.close)
+        return self.broker.sizing_equity(self.broker.bar.close)
 
     @staticmethod
     def valid(*values: float) -> bool:

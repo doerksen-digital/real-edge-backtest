@@ -264,6 +264,33 @@ def test_stop_inside_bar_then_cross_at_close_uses_equity_after_stop():
     assert reversed_.lots == expected
 
 
+def test_reversal_is_sized_from_equity_net_of_open_entry_commission():
+    o = h = lo = [100.0, 100.0, 101.0, 102.0, 102.0]
+    c = [100.0, 100.0, 101.0, 102.0, 102.0]
+    result = run_forced(
+        make_candles(o, h, lo, c), up={1: True}, down={3: True}, trend={1: 1, 3: -1}
+    )
+    long_trade, short_trade = result.trades
+    assert long_trade.exit_comment == "EMA below VWAP" and short_trade.entry_index == 3
+    # strategy.equity at bar 3's close: capital + open profit - the long's entry commission
+    open_profit = long_trade.lots * Decimal("0.00001") * (Decimal("102.00") - Decimal("100.02"))
+    equity = Decimal("10000") + open_profit - long_trade.entry_commission
+    expected = position_lots(
+        equity, Decimal(100), Decimal("0.05"), Decimal("101.98"), Decimal(1), Decimal("0.00001")
+    )
+    assert short_trade.lots == expected
+
+
+def test_sizing_equity_subtracts_open_entry_commission_only():
+    b = broker()
+    at(b, 0, 10_000, 10_000, 10_000, 10_000)
+    b.entry(LONG, 100_000, "in")
+    paid = b.open_trade.entry_commission
+    assert b.sizing_equity(10_100) == b.equity(10_100) - paid
+    b.close("out")
+    assert b.sizing_equity(10_000) == b.equity(10_000)
+
+
 def test_test_end_closes_open_position():
     candles = flat(6)
     strategy = type("Case", (Forced,), {"up": {1: True}, "trend": {1: 1}})

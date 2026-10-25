@@ -84,6 +84,13 @@ class Broker:
     def equity(self, price: int) -> Decimal:
         return self.config.initial_capital + self.net_profit + self.open_profit(price)
 
+    def sizing_equity(self, price: int) -> Decimal:
+        """Equity for position sizing: also net of the open trade's entry commission. The
+        TradingView parity run matches to the cent only with this (strategy.equity in Pine)."""
+        trade = self.open_trade
+        paid = trade.entry_commission if trade else Decimal(0)
+        return self.equity(price) - paid
+
     def _slipped(self, price: int, side: int) -> int:
         return price + side * self.config.slippage_ticks
 
