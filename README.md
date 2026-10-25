@@ -111,8 +111,8 @@ Gaps are exchange downtime. They are never filled.
 ### Report
 
 - Header: strategy, window, seen window, fill model, fees, slippage, sizing, starting equity, config hash, git commit, working tree state, data hash, warnings.
-- Pass criteria from `[criteria]`: profit factor (`min_profit_factor`, default 1.3), closed trades (`min_trades`, default 30), net PnL without the `without_top_n` best trades (default 5), net PnL in both halves of the window. Return, max drawdown and time in market are shown next to buy and hold as comparisons.
-- Trade metrics: profit factor, expectancy, win rate, average win and loss, PnL without the top 1, 3 and 5 trades, time in market, max drawdown on close equity and on closed trades.
+- Pass criteria from `[criteria]`: profit factor (`min_profit_factor`, default 1.3), closed trades (`min_trades`, default 100), net PnL still positive both without the `without_top_n` best trades (default 5) and without the best `without_top_pct` percent of trades (default 1, count rounded up), net PnL in both halves of the window. Return, max drawdown and time in market are shown next to buy and hold as comparisons.
+- Trade metrics: profit factor, expectancy, win rate, average win and loss, PnL without the top 1, 3 and 5 trades and without the top 1%, time in market, max drawdown on close equity and on closed trades.
 - Buy and hold: one buy at the first window candle's open, sold at the last window candle's close, same starting equity, commission and slippage.
 - Charts: equity, drawdown, return per year, strategy vs buy and hold.
 - Tables per calendar year (UTC) and per half of the window. A trade counts in the period of its exit.

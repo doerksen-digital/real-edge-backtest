@@ -135,6 +135,8 @@ def metric_rows(a: Analysis) -> list[tuple[str, str]]:
         ("Average loss", _money(s["average_loss"])),
     ]
     rows += [(f"Net PnL without top {n}", _money(v)) for n, v in a.without_top.items()]
+    pct, removed, without_pct = a.without_top_pct
+    rows.append((f"Net PnL without top {pct:g}% ({removed} trades)", _money(without_pct)))
     rows += [
         ("Time in market", _pct(a.time_in_market)),
         ("Max drawdown, close equity", f"{_money(a.max_drawdown[0])} ({_pct(a.max_drawdown[1])})"),

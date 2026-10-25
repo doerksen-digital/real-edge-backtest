@@ -18,6 +18,7 @@ from real_edge_backtest.analysis.metrics import (
     max_drawdown,
     pnl_without_top,
     time_in_market,
+    top_pct_count,
     trade_stats,
     window_equity,
 )
@@ -200,10 +201,55 @@ def test_thresholds_come_from_config():
     by_name = {c.name: c for c in loose.checks}
     assert by_name["Profit factor (net)"].passed  # 40 / 20 = 2.0
     assert by_name["Closed trades"].passed
-    assert by_name["Net PnL without top 1 trades"].passed is False  # 20 - 30
+    assert by_name["Net PnL without the best trades"].passed is False  # 20 - 30
+    assert not analyze(run_with({})).checks[1].passed  # default min_trades is 100
     strict = analyze(run_with({"min_profit_factor": 2.5}))
     assert not {c.name: c for c in strict.checks}["Profit factor (net)"].passed
     assert all(c.passed is None for c in strict.checks if c.threshold == "comparison")
+
+
+def test_top_pct_count_rounds_up():
+    assert top_pct_count(1695, 1) == 17  # 16.95
+    assert top_pct_count(100, 1) == 1
+    assert top_pct_count(101, 1) == 2
+    assert top_pct_count(5, 1) == 1
+    assert top_pct_count(0, 1) == 0
+    assert top_pct_count(300, 0.5) == 2  # 1.5
+
+
+def best_trades_check(pnls, criteria):
+    exits = pd.date_range("2025-01-01 00:00", periods=len(pnls), freq="min", tz="UTC")
+    run = Run(
+        meta={
+            "window": {"start": str(START), "end": str(END)},
+            "broker": BROKER,
+            "criteria": criteria,
+        },
+        trades=trades(pnls, exits),
+        equity=equity_frame(),
+    )
+    a = analyze(run)
+    return a, {c.name: c for c in a.checks}["Net PnL without the best trades"]
+
+
+def test_best_trades_criterion_needs_both_checks():
+    # 200 trades: one +500 winner, 30 winners of +10, 169 losers of -1. Net 631.
+    pnls = [500] + [10] * 30 + [-1] * 169
+    # top 5: 631 - 500 - 40 = 91 > 0. top 1% = 2 trades: 631 - 510 = 121 > 0. Both pass.
+    a, check = best_trades_check(pnls, {"without_top_n": 5, "without_top_pct": 1})
+    assert a.without_top[5] == 91
+    assert a.without_top_pct == (1, 2, 121)
+    assert check.passed
+    assert check.value == "top 5: 91.00; top 1%: 121.00"
+    assert check.threshold == "> 0 without top 5 and without top 1% (2 trades)"
+    # top 5 passes (91), top 10% = 20 trades: 631 - 500 - 190 = -59 fails: criterion fails.
+    a, check = best_trades_check(pnls, {"without_top_n": 5, "without_top_pct": 10})
+    assert a.without_top[5] > 0 and a.without_top_pct == (10, 20, -59)
+    assert check.passed is False
+    # top 1% passes (121), top 15 fails: 631 - 500 - 140 = -9: criterion fails.
+    a, check = best_trades_check(pnls, {"without_top_n": 15, "without_top_pct": 1})
+    assert a.without_top[15] == -9 and a.without_top_pct[2] > 0
+    assert check.passed is False
 
 
 def test_unknown_criterion_is_rejected():

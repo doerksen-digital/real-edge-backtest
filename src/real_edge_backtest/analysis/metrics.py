@@ -32,8 +32,9 @@ class Criteria:
     """Pass criteria, fixed in the run config ([criteria]) before the run."""
 
     min_profit_factor: float = 1.3
-    min_trades: int = 30
+    min_trades: int = 100
     without_top_n: int = 5  # still positive without the N best trades
+    without_top_pct: float = 1.0  # and without the best pct % of trades (count rounded up)
     top_n: tuple[int, ...] = (1, 3, 5)  # reported "PnL without top N" values
 
     @classmethod
@@ -123,6 +124,11 @@ def pnl_without_top(trades: pd.DataFrame, n: int) -> float:
     pnl = closed(trades)["net_pnl"]
     top = pnl[pnl > 0].nlargest(n)
     return float(pnl.sum() - top.sum())
+
+
+def top_pct_count(trade_count: int, pct: float) -> int:
+    """Number of trades in the top `pct` percent of `trade_count`, rounded up."""
+    return math.ceil(Fraction(trade_count) * Fraction(str(pct)) / 100)
 
 
 def by_year(trades: pd.DataFrame, window: pd.DataFrame, initial_capital: float) -> pd.DataFrame:
@@ -223,6 +229,7 @@ class Analysis:
     window: pd.DataFrame
     stats: dict[str, float]
     without_top: dict[int, float]
+    without_top_pct: tuple[float, int, float]  # (pct, trades removed, net PnL without them)
     years: pd.DataFrame
     halves: list[dict]
     time_in_market: float
@@ -248,12 +255,15 @@ def analyze(run: Run, trades: pd.DataFrame | None = None) -> Analysis:
     without = {
         n: pnl_without_top(trades, n) for n in sorted({*criteria.top_n, criteria.without_top_n})
     }
+    removed = top_pct_count(stats["trades"], criteria.without_top_pct)
+    pct = (criteria.without_top_pct, removed, pnl_without_top(trades, removed))
     two = halves(trades, run.start, run.end)
     bh = buy_and_hold(window, run.meta["broker"])
     analysis = Analysis(
         window=window,
         stats=stats,
         without_top=without,
+        without_top_pct=pct,
         years=by_year(trades, window, capital),
         halves=two,
         time_in_market=time_in_market(window),
@@ -268,6 +278,7 @@ def analyze(run: Run, trades: pd.DataFrame | None = None) -> Analysis:
 
 def checks(a: Analysis, c: Criteria) -> list[Check]:
     n = c.without_top_n
+    pct, removed, without_pct = a.without_top_pct
     pf = a.stats["profit_factor"]
     return [
         Check(
@@ -283,10 +294,10 @@ def checks(a: Analysis, c: Criteria) -> list[Check]:
             a.stats["trades"] >= c.min_trades,
         ),
         Check(
-            f"Net PnL without top {n} trades",
-            "> 0",
-            f"{a.without_top[n]:,.2f}",
-            a.without_top[n] > 0,
+            "Net PnL without the best trades",
+            f"> 0 without top {n} and without top {pct:g}% ({removed} trades)",
+            f"top {n}: {a.without_top[n]:,.2f}; top {pct:g}%: {without_pct:,.2f}",
+            a.without_top[n] > 0 and without_pct > 0,
         ),
         Check(
             "Net PnL first half",

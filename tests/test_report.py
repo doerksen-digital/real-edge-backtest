@@ -62,6 +62,8 @@ def test_report_is_self_contained_and_complete(run_folder):
     assert not re.search(r"url\(\s*['\"]?https?:", text)
     assert "abc123" in text and "clean" in text
     assert "Start is only 2 days after the first candle" in text
+    assert "Net PnL without top 1% (" in text
+    assert "and without top 1% (" in text
 
 
 def test_report_cli_writes_to_out(run_folder, tmp_path, capsys):
