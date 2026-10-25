@@ -58,7 +58,7 @@ def _run(args: argparse.Namespace) -> int:
     # Imported here so data commands do not load the engine.
     from real_edge_backtest.engine import load_config
     from real_edge_backtest.engine.results import summarize, write_run
-    from real_edge_backtest.runner import run_backtest
+    from real_edge_backtest.runner import run_backtest, run_metadata
 
     try:
         config = load_config(args.config)
@@ -66,7 +66,8 @@ def _run(args: argparse.Namespace) -> int:
     except (FileNotFoundError, KeyError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    folder = write_run(result, config.runs_dir, config.name, config.source_text)
+    meta = run_metadata(config)
+    folder = write_run(result, config.runs_dir, config.name, config.source_text, meta)
     s = summarize(result)
     open_trades = len(result.trades) - s.trades
     print(f"Run {config.name}: {config.symbol} {config.interval}, {config.strategy}")

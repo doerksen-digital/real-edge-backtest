@@ -1,5 +1,6 @@
 """Summary statistics and run output files. No report code: other tools read these files."""
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -66,7 +67,11 @@ def trades_frame(result: Result) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def write_run(result: Result, runs_dir: Path, name: str, config_text: str) -> Path:
+def write_run(
+    result: Result, runs_dir: Path, name: str, config_text: str, meta: dict | None = None
+) -> Path:
+    """trades.csv, equity.csv (every candle of the dataset, with close time, open, close and
+    the position after the bar), config.toml and run.json (meta: window, settings, provenance)."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     folder = runs_dir / f"{stamp}-{name}"
     folder.mkdir(parents=True, exist_ok=False)
@@ -74,4 +79,6 @@ def write_run(result: Result, runs_dir: Path, name: str, config_text: str) -> Pa
     equity = result.equity.assign(equity=result.equity["equity"].map(float))
     equity.to_csv(folder / "equity.csv", index=False)
     (folder / "config.toml").write_text(config_text, encoding="utf-8")
+    text = json.dumps(meta or {}, indent=2, default=str)
+    (folder / "run.json").write_text(text + "\n", encoding="utf-8")
     return folder

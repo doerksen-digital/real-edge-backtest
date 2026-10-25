@@ -15,6 +15,30 @@ def load_candles(config: RunConfig) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
+def run_metadata(config: RunConfig) -> dict:
+    """What a report needs to know about a run besides its trades and equity."""
+    params = {**STRATEGIES[config.strategy].params, **config.params}
+    b = config.broker
+    return {
+        "name": config.name,
+        "strategy": config.strategy,
+        "symbol": config.symbol,
+        "interval": config.interval,
+        "window": {"start": params.get("start"), "end": params.get("end")},
+        "params": params,
+        "broker": {
+            "initial_capital": str(b.initial_capital),
+            "commission_pct": str(b.commission_pct),
+            "slippage_ticks": b.slippage_ticks,
+            "tick_size": str(b.tick_size),
+            "lot_size": str(b.lot_size),
+            "point_value": str(b.point_value),
+            "fill_model": b.fill_model,
+        },
+        "criteria": config.criteria,
+    }
+
+
 def run_backtest(config: RunConfig, data: pd.DataFrame | None = None) -> Result:
     if config.strategy not in STRATEGIES:
         raise ValueError(f"unknown strategy {config.strategy!r}, known: {sorted(STRATEGIES)}")

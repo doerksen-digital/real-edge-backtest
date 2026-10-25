@@ -24,7 +24,7 @@ ONE_HOUR = pd.Timedelta(hours=1)
 @dataclass
 class Result:
     trades: list[Trade]
-    equity: pd.DataFrame  # open_time, equity (Decimal)
+    equity: pd.DataFrame  # open_time, time_close, open, close, position (lots), equity (Decimal)
     broker: BrokerConfig
 
     @property
@@ -70,7 +70,7 @@ class Backtest:
         strategy = self.strategy_cls(self.data, broker, self.params)
         strategy.init()
 
-        equity = []
+        equity, positions = [], []
         for i in range(len(self.data)):
             broker.index = i
             broker.time = times[i]
@@ -79,9 +79,19 @@ class Backtest:
             strategy.i = i
             strategy.next()
             equity.append(broker.equity(int(c[i])))
+            positions.append(broker.position)
 
         return Result(
             trades=broker.trades,
-            equity=pd.DataFrame({"open_time": times, "equity": equity}),
+            equity=pd.DataFrame(
+                {
+                    "open_time": times,
+                    "time_close": self.data["time_close"],
+                    "open": self.data["open"],
+                    "close": self.data["close"],
+                    "position": positions,
+                    "equity": equity,
+                }
+            ),
             broker=self.broker_config,
         )

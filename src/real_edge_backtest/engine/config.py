@@ -38,6 +38,7 @@ class RunConfig:
     params: dict[str, Any] = field(default_factory=dict)
     broker: BrokerConfig = field(default_factory=BrokerConfig)
     runs_dir: Path = Path("runs")
+    criteria: dict[str, Any] = field(default_factory=dict)  # pass criteria, read by the report
     source_text: str = ""
 
 
@@ -70,5 +71,6 @@ def load_config(path: Path) -> RunConfig:
             fill_model=broker.get("fill_model", defaults.fill_model),
         ),
         runs_dir=Path(raw.get("output", {}).get("runs_dir", "runs")),
+        criteria=dict(raw.get("criteria", {})),
         source_text=text,
     )
