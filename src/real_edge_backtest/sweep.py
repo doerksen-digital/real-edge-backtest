@@ -1,12 +1,18 @@
 """Parameter sweeps: one hypothesis run over the parameter values fixed in its spec file.
 
-A spec (TOML) names the hypothesis, the base run config and a grid of at most two parameters,
-each a dotted key into the config with its values, written down before the sweep runs:
+A spec (TOML) names the hypothesis, the base run config, optional fixed changes the
+hypothesis's rule makes to every point, and a grid of at most two parameters, each a dotted key
+into the config with its values, written down before the sweep runs:
 
     id = "H1"
     base = "configs/ema_vwap_full.toml"   # relative to the current directory
+    [set]
+    "data.timeframe" = "4h"
     [grid]
     "strategy.params.vwap_bars" = [18, 24, 30]
+
+[set] is applied before the grid, so a grid key may point into a section [set] creates
+("strategy.filters.0.bars").
 
 Every grid point is an ordinary logged run (run folder, experiment log line, variant count),
 so a sweep cannot hide how many variants were tried. The plateau table shows the main
@@ -37,6 +43,7 @@ class SweepSpec:
     base: Path
     grid: dict[str, list[Any]]
     source_text: str = ""
+    fixed: dict[str, Any] = dataclasses.field(default_factory=dict)  # [set]
 
     @property
     def points(self) -> list[dict[str, Any]]:
@@ -56,7 +63,7 @@ class SweepResult:
 def load_spec(path: Path) -> SweepSpec:
     text = path.read_text(encoding="utf-8")
     raw = tomllib.loads(text)
-    unknown = set(raw) - {"id", "base", "grid"}
+    unknown = set(raw) - {"id", "base", "set", "grid"}
     if unknown:
         raise ValueError(f"unknown sweep spec keys: {sorted(unknown)}")
     grid = raw.get("grid", {})
@@ -67,7 +74,17 @@ def load_spec(path: Path) -> SweepSpec:
     for key, values in grid.items():
         if not isinstance(values, list) or not values:
             raise ValueError(f"grid {key!r} needs a non-empty list of values")
-    return SweepSpec(id=str(raw["id"]), base=Path(raw["base"]), grid=dict(grid), source_text=text)
+    fixed = raw.get("set", {})
+    clash = set(fixed) & set(grid)
+    if clash:
+        raise ValueError(f"keys both in [set] and [grid]: {sorted(clash)}")
+    return SweepSpec(
+        id=str(raw["id"]),
+        base=Path(raw["base"]),
+        grid=dict(grid),
+        source_text=text,
+        fixed=dict(fixed),
+    )
 
 
 def point_label(point: dict[str, Any]) -> str:
@@ -94,7 +111,7 @@ def run_sweep(
 ) -> SweepResult:
     rows, runs_dir = [], None
     for point in spec.points:
-        config = load_config(spec.base, point)
+        config = load_config(spec.base, {**spec.fixed, **point})
         suffix = "-".join(f"{k.split('.')[-1]}={v}" for k, v in point.items())
         config = dataclasses.replace(config, name=f"{config.name}-{spec.id}-{suffix}")
         runs_dir = config.runs_dir

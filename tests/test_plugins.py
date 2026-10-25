@@ -192,3 +192,71 @@ def test_plugins_and_timeframe_are_part_of_the_variant_only_when_set():
     with_tf = {**meta, "timeframe": "4h"}
     hashes = {param_hash(variant_params(m)) for m in (meta, with_filter, with_tf)}
     assert len(hashes) == 3
+
+
+def candles(rows):
+    """(open, high, low, close) per bar."""
+    return make_candles(*zip(*rows, strict=True))
+
+
+def test_confirm_plugin_enters_or_cancels_after_n_bars():
+    entered = run([{"name": "confirm", "bars": 2}], up=(2,), above={4: 1})
+    (trade,) = entered.trades
+    assert trade.side == LONG and trade.entry_index == 4
+    cancelled = run([{"name": "confirm", "bars": 1}], up=(2,), above={3: -1})
+    assert cancelled.trades == [] and cancelled.counters["deferred_cancelled"] == 1
+    with pytest.raises(ValueError, match="bars must be 1 to 5"):
+        build_filters([{"name": "confirm", "bars": 6}])
+
+
+# Long at the bar 1 close: fill 101.02, ATR 0.5, ATR stop 100.02 (never reached here).
+BREAKEVEN_BARS = [
+    (100, 100.1, 99.9, 100),
+    (100, 101.1, 99.9, 101),
+    (101, 102.3, 100.9, 102.2),  # 1.18 above the fill: >= 2 x 0.5, stop to 101.02
+    (102.2, 102.3, 100.9, 101.5),  # stop fills at 101.02 minus 2 ticks slippage
+    (101.5, 101.6, 101.4, 101.5),
+]
+
+
+def test_breakeven_moves_the_stop_to_the_entry_fill():
+    result = run(exits=[{"name": "breakeven", "k": 2.0}], candles=candles(BREAKEVEN_BARS), up=(1,))
+    trade = result.trades[0]
+    assert (trade.entry_price, trade.exit_index, trade.exit_price) == (10_102, 3, 10_100)
+    assert trade.exit_comment == "Breakeven stop" and trade.exit_by_stop
+
+
+def test_breakeven_waits_for_k_atr():
+    result = run(exits=[{"name": "breakeven", "k": 3.0}], candles=candles(BREAKEVEN_BARS), up=(1,))
+    assert all(t.exit_comment != "Breakeven stop" for t in result.trades)
+
+
+def test_atr_trail_follows_the_best_close():
+    rows = [
+        (100, 100.1, 99.9, 100),
+        (100, 101.1, 99.9, 101),  # long, fill 101.02
+        (101, 102.1, 100.9, 102),  # 0.98 >= 1 x 0.5: stop 102 - 0.5 = 101.50
+        (102, 103.1, 101.9, 103),  # stop 102.50
+        (103, 103.1, 102.4, 102.6),  # stop fills at 102.50 minus slippage
+        (102.6, 102.7, 102.5, 102.6),
+    ]
+    result = run(exits=[{"name": "atr_trail", "k": 1.0, "t": 1.0}], candles=candles(rows), up=(1,))
+    trade = result.trades[0]
+    assert (trade.exit_index, trade.exit_price, trade.exit_comment) == (4, 10_248, "ATR trail")
+
+
+def test_atr_trail_short():
+    rows = [
+        (100, 100.1, 99.9, 100),
+        (100, 100.1, 98.9, 99),  # short, fill 98.98
+        (99, 99.1, 97.9, 98),  # stop 98.50
+        (98, 98.1, 96.9, 97),  # stop 97.50
+        (97, 97.6, 96.9, 97.4),  # stop fills at 97.50 plus slippage
+        (97.4, 97.5, 97.3, 97.4),
+    ]
+    result = run(
+        exits=[{"name": "atr_trail", "k": 1.0, "t": 1.0}], candles=candles(rows), down=(1,)
+    )
+    trade = result.trades[0]
+    assert trade.side == SHORT and trade.entry_price == 9_898
+    assert (trade.exit_index, trade.exit_price, trade.exit_comment) == (4, 9_752, "ATR trail")

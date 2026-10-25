@@ -138,7 +138,7 @@ name = "<filter>"
 name = "<exit rule>"
 ```
 
-Without plug-ins a run is unchanged. Entry filters act where the daily trend filter acts: they can allow a cross, cancel it (an opposite position is still closed, like a blocked cross) or defer it for a limited number of bars. A deferred entry is decided at a later close and then filled at that close, sized and stopped there; a cross in the opposite direction cancels it. Exit rules run at each close with an open trade and can close it or tighten its stop. Concrete plug-ins are added together with the hypothesis that defines them ([docs/research/hypotheses.md](docs/research/hypotheses.md)).
+Without plug-ins a run is unchanged. Entry filters act where the daily trend filter acts: they can allow a cross, cancel it (an opposite position is still closed, like a blocked cross) or defer it for a limited number of bars. A deferred entry is decided at a later close and then filled at that close, sized and stopped there; a cross in the opposite direction cancels it. Exit rules run at each close with an open trade and can close it or tighten its stop. Concrete plug-ins are added together with the hypothesis that defines them ([docs/research/hypotheses.md](docs/research/hypotheses.md)): the entry filter `confirm` (`bars`) and the exits `breakeven` (`k`) and `atr_trail` (`k`, `t`).
 
 `timeframe = "4h"` in `[data]` runs the strategy on candles built from the `interval` dataset: buckets aligned to UTC epoch multiples, OHLCV from the source candles that exist in the bucket, a bucket without any source candle is a gap. Indicator lengths stay in bars of the timeframe. Plug-ins and a timeframe are recorded in `run.json`, the report header and the experiment log, and they are part of the variant.
 
@@ -158,7 +158,7 @@ real-edge-backtest sweep --spec configs/sweeps/<id>.toml
 
 `report --compare` writes `reports/compare-<A>-vs-<B>.html` (or `--out`): metrics and pass criteria side by side, trades that disappeared, appeared or changed their exit (matched by side and entry time), and what B did with A's top 1% winners by percent return.
 
-`sweep` runs one hypothesis over the values in its spec: `id`, `base` (a run config) and `[grid]` with one or two dotted config keys and their values, for example `"strategy.params.vwap_bars" = [18, 24, 30]`. Every grid point is a normal logged run, so the variant count stays honest. It prints a plateau table (PF, net PnL, trades, fees, max drawdown, both halves, pass) and writes it to `runs/sweeps/<UTC timestamp>-<id>/sweep.csv`. A run with overrides records them in `run.json`, and its config hash covers the config text plus the overrides; a plain run's hash is the hash of the config file, as before.
+`sweep` runs one hypothesis over the values in its spec: `id`, `base` (a run config), an optional `[set]` with fixed changes applied to every point (for example `"data.timeframe" = "4h"` or a plug-in list), and `[grid]` with one or two dotted config keys and their values, for example `"strategy.params.vwap_bars" = [18, 24, 30]`. The hypothesis specs are in `configs/sweeps/`. Every grid point is a normal logged run, so the variant count stays honest. It prints a plateau table (PF, net PnL, trades, fees, max drawdown, both halves, pass) and writes it to `runs/sweeps/<UTC timestamp>-<id>/sweep.csv`. A run with overrides records them in `run.json`, and its config hash covers the config text plus the overrides; a plain run's hash is the hash of the config file, as before.
 
 ### Experiment log
 

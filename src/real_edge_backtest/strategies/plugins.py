@@ -9,7 +9,8 @@
 
 Without plug-ins a strategy behaves exactly as before. A plug-in has default parameters in
 `params`; unknown names and unknown parameters are rejected. Concrete plug-ins are added only
-with the hypothesis that defines them (docs/research/hypotheses.md).
+with the hypothesis that defines them (docs/research/hypotheses.md): confirm (H3), breakeven
+(H4) and atr_trail (H5). They read the ema_vwap strategy's arrays.
 
 Entry filters act where the trend filter acts. For a cross that the trend filter and the
 direction setting allow, each filter's on_signal answers:
@@ -29,6 +30,10 @@ logic. They may close the trade at the close (broker.close) or tighten its stop
 
 from dataclasses import dataclass
 from typing import Any, ClassVar
+
+import numpy as np
+
+from real_edge_backtest.indicators import pine_round
 
 ALLOW, CANCEL = "allow", "cancel"
 
@@ -71,8 +76,77 @@ class ExitRule(Plugin):
         """Called at the close of bar i while `trade` is open."""
 
 
-FILTERS: dict[str, type[EntryFilter]] = {}
-EXITS: dict[str, type[ExitRule]] = {}
+class Confirm(EntryFilter):
+    """H3: enter only if the EMA is still on the cross side of the VWAP `bars` bars after the
+    cross, at that bar's close; otherwise cancel."""
+
+    name = "confirm"
+    params = {"bars": 2}
+    max_defer = 5
+
+    def __init__(self, **params: Any) -> None:
+        super().__init__(**params)
+        if not 1 <= self.p["bars"] <= self.max_defer:
+            raise ValueError(f"confirm: bars must be 1 to {self.max_defer}, got {self.p['bars']}")
+
+    def on_signal(self, strategy: Any, i: int, side: int) -> Defer:
+        return defer(self.p["bars"])
+
+    def on_pending(self, strategy: Any, i: int, side: int, bars_waited: int) -> str | None:
+        if bars_waited < self.p["bars"]:
+            return None
+        return ALLOW if side * (strategy.ema[i] - strategy.vwap[i]) > 0 else CANCEL
+
+
+class _ProfitStop(ExitRule):
+    """A stop that moves once the best close since entry is `k` ATR (of the entry bar) beyond
+    the entry fill price. The best close covers the bars after the entry bar up to i. The new
+    level, rounded to ticks, only tightens the stop and applies from the next bar."""
+
+    comment: ClassVar[str] = ""
+
+    def level(self, best: float, entry: float, atr: float, side: int) -> float:
+        raise NotImplementedError
+
+    def on_bar(self, strategy: Any, i: int, trade: Any) -> None:
+        side = trade.side
+        closes = strategy.close[trade.entry_index + 1 : i + 1]
+        if not len(closes):
+            return
+        best = float(np.max(closes) if side > 0 else np.min(closes))
+        tick = strategy.mintick
+        entry = trade.entry_price * tick
+        atr = strategy.atr[trade.entry_index]
+        if (best - entry) * side < self.p["k"] * atr:
+            return
+        level = pine_round(self.level(best, entry, atr, side) / tick)
+        strategy.broker.move_stop("L-Stop" if side > 0 else "S-Stop", level, self.comment)
+
+
+class Breakeven(_ProfitStop):
+    """H4: stop to the entry fill price once a close was `k` ATR in profit."""
+
+    name = "breakeven"
+    params = {"k": 2.0}
+    comment = "Breakeven stop"
+
+    def level(self, best: float, entry: float, atr: float, side: int) -> float:
+        return entry
+
+
+class AtrTrail(_ProfitStop):
+    """H5: once a close was `k` ATR in profit, trail the stop `t` ATR behind the best close."""
+
+    name = "atr_trail"
+    params = {"k": 3.0, "t": 3.0}
+    comment = "ATR trail"
+
+    def level(self, best: float, entry: float, atr: float, side: int) -> float:
+        return best - side * self.p["t"] * atr
+
+
+FILTERS: dict[str, type[EntryFilter]] = {Confirm.name: Confirm}
+EXITS: dict[str, type[ExitRule]] = {Breakeven.name: Breakeven, AtrTrail.name: AtrTrail}
 
 
 def _build(configs: list[dict[str, Any]], registry: dict[str, type], kind: str) -> list:

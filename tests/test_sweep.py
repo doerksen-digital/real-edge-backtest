@@ -120,3 +120,27 @@ def test_sweep_on_holdout_is_refused(tmp_path, capsys):
     assert main(["sweep", "--spec", str(make_spec(tmp_path, "SOLUSDT"))]) == 1
     assert "SOLUSDT is holdout data" in capsys.readouterr().err
     assert not (tmp_path / "log.jsonl").exists()
+
+
+def test_sweep_set_applies_to_every_point(tmp_path):
+    path = make_spec(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        "[grid]", '[set]\n"strategy.params.direction" = "Long only"\n[grid]'
+    )
+    path.write_text(text, encoding="utf-8")
+    assert main(["sweep", "--spec", str(path)]) == 0
+    log = read_log(tmp_path / "log.jsonl")
+    assert [e["params"]["direction"] for e in log] == ["Long only", "Long only"]
+    run = sorted(p for p in (tmp_path / "runs").iterdir() if p.name != "sweeps")[0]
+    meta = json.loads((run / "run.json").read_text(encoding="utf-8"))
+    assert meta["overrides"] == {
+        "strategy.params.direction": "Long only",
+        "strategy.params.stop_atr": 1.5,
+    }
+
+
+def test_sweep_rejects_a_key_in_set_and_grid(tmp_path):
+    path = tmp_path / "s.toml"
+    path.write_text('id = "X"\nbase = "b.toml"\n[set]\n"a.b" = 1\n[grid]\n"a.b" = [1]\n', "utf-8")
+    with pytest.raises(ValueError, match="both in"):
+        load_spec(path)
