@@ -4,7 +4,7 @@ An honest backtesting tool for short-term crypto strategies.
 
 Most backtests look better than reality because they peek at future candles, ignore costs, or test so many variants that one wins by luck. This project is built to make all three hard to do by accident.
 
-> **Status:** Phase 0 (project setup). Nothing is usable yet. See the [plan](docs/PLAN.md) for what comes next.
+> **Status:** Phase 1 (data). Market data can be downloaded and checked. No backtests yet. See the [plan](docs/PLAN.md) for what comes next.
 
 ## What it will do
 
@@ -26,6 +26,41 @@ pip install -e ".[dev]"
 ruff check .
 pytest
 ```
+
+## Data
+
+Spot candles come from the [Binance public data archive](https://data.binance.vision/). Monthly files are used for complete months, daily files for the current month and for last month until its monthly file is published.
+
+Download, verify and check:
+
+```bash
+real-edge-backtest data download --symbol BTCUSDT --interval 1h --start 2018-01
+```
+
+Check an existing dataset:
+
+```bash
+real-edge-backtest data check --symbol BTCUSDT --interval 1h
+```
+
+Add `--refresh` to `data download` to compare every local file with the remote `.CHECKSUM` and fetch files that Binance replaced. Supported intervals: `1s 1m 3m 5m 15m 30m 1h 2h 4h 6h 8h 12h 1d`.
+
+What happens:
+
+- Every zip is verified against its `.CHECKSUM` (SHA-256) on every run. A file that fails is deleted and reported, never used. Re-running only downloads what is missing.
+- Downloads run one at a time with a pause. HTTP 429 and 5xx are retried with exponential backoff.
+- Timestamps are milliseconds before 2025-01-01 and microseconds after. The unit is detected per row and all times are stored in UTC.
+- Exact duplicate rows are dropped. Candles off the interval grid and zero-trade placeholder candles are excluded. Candles that closed early before an outage are kept and marked `partial`.
+- Gaps are exchange downtime. They are listed, never filled.
+
+Files, all under the gitignored `data/` folder:
+
+- `data/raw/spot/{monthly,daily}/klines/{SYMBOL}/{interval}/`: verified zips and their checksums
+- `data/spot/klines/{SYMBOL}/{interval}.parquet`: the cleaned dataset
+
+The download logic follows the official downloader in [binance/binance-public-data](https://github.com/binance/binance-public-data) (MIT).
+
+**Data license:** the Binance Vision dataset terms license the data under CC BY-NC-SA 4.0. They allow personal, non-production backtesting research. They forbid live trading execution, paid signals and other commercial use. The data is never committed to this repository.
 
 ## Credits
 
