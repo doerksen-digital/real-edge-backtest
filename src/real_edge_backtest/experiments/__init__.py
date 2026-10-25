@@ -2,6 +2,7 @@
 
 from real_edge_backtest.experiments.log import (
     append,
+    describe_seen,
     make_entry,
     param_hash,
     read_log,
@@ -9,4 +10,12 @@ from real_edge_backtest.experiments.log import (
     variant_count,
 )
 
-__all__ = ["append", "make_entry", "param_hash", "read_log", "seen_window", "variant_count"]
+__all__ = [
+    "append",
+    "describe_seen",
+    "make_entry",
+    "param_hash",
+    "read_log",
+    "seen_window",
+    "variant_count",
+]

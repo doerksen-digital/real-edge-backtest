@@ -103,3 +103,15 @@ def seen_window(entries: list[dict[str, Any]], family: str, start: str, end: str
         "window_days": (hi - lo) / pd.Timedelta(days=1),
         "param_sets": len(hashes),
     }
+
+
+def describe_seen(seen: dict[str, Any]) -> str:
+    """One line for the run output and the report header. Overlaps under a day in hours."""
+    if not seen.get("runs"):
+        return "unseen: no earlier run of this strategy family overlaps the window"
+    days = seen["overlap_days"]
+    span = f"{days * 24:.0f} hours" if days < 1 else f"{days:.1f} days"
+    return (
+        f"seen: {seen['runs']} earlier runs overlap {span} of the {seen['window_days']:.1f}-day "
+        f"window, with {seen['param_sets']} distinct parameter sets"
+    )

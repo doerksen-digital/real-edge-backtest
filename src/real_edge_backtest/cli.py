@@ -115,13 +115,7 @@ def _run(args: argparse.Namespace) -> int:
         print(f"WARNING: {warning}")
     print(f"Run {config.name}: {config.symbol} {config.interval}, {config.strategy}")
     print(f"  window          {window['start']} to {window['end']} (candle close, end exclusive)")
-    if seen["runs"]:
-        print(
-            f"  seen window     {seen['runs']} earlier runs overlap on {seen['overlap_days']:.1f}"
-            f" of {seen['window_days']:.1f} days, {seen['param_sets']} parameter sets"
-        )
-    else:
-        print("  seen window     unseen by earlier runs of this strategy")
+    print(f"  seen window     {experiments.describe_seen(seen)}")
     print(f"  variants        {variants} parameter sets of {config.strategy} logged so far")
     print(f"  fill model      {config.broker.fill_model}")
     capped = result.counters.get("sizing_capped", 0)

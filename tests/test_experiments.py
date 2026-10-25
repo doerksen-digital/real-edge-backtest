@@ -6,6 +6,7 @@ from conftest import random_walk
 from real_edge_backtest.cli import main
 from real_edge_backtest.experiments import (
     append,
+    describe_seen,
     param_hash,
     read_log,
     seen_window,
@@ -72,6 +73,16 @@ def test_seen_window_partial_and_nested_overlaps_are_unioned():
     assert seen["param_sets"] == 2
 
 
+def test_describe_seen():
+    assert describe_seen({"runs": 0}).startswith("unseen")
+    one_hour = {"runs": 9, "overlap_days": 1 / 24, "window_days": 2922.0, "param_sets": 9}
+    assert describe_seen(one_hour) == (
+        "seen: 9 earlier runs overlap 1 hours of the 2922.0-day window, "
+        "with 9 distinct parameter sets"
+    )
+    assert "22.0 days" in describe_seen({**one_hour, "overlap_days": 22.0})
+
+
 def test_touching_windows_do_not_overlap():
     log = [entry("a", "2021-01-01", "2022-01-01")]
     assert seen_window(log, "a", "2022-01-01", "2023-01-01")["runs"] == 0
@@ -106,10 +117,10 @@ experiment_log = "{(tmp_path / "log.jsonl").as_posix()}"
 
 def test_run_appends_and_reports_seen_window(config_file, tmp_path, capsys):
     assert main(["run", "--config", str(config_file)]) == 0
-    assert "unseen by earlier runs" in capsys.readouterr().out
+    assert "seen window     unseen: no earlier run" in capsys.readouterr().out
     assert main(["run", "--config", str(config_file)]) == 0
     out = capsys.readouterr().out
-    assert "1 earlier runs overlap" in out
+    assert "seen: 1 earlier runs overlap" in out
     assert "1 parameter sets of ema_vwap" in out
     log = read_log(tmp_path / "log.jsonl")
     assert len(log) == 2

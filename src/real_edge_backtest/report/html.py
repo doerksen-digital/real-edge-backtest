@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from real_edge_backtest.analysis.metrics import Analysis, Run, analyze, load_run
+from real_edge_backtest.experiments import describe_seen
 from real_edge_backtest.report import charts
 
 CSS = """
@@ -70,13 +71,7 @@ def _kv(rows: list[tuple[str, Any]]) -> str:
 def _seen_text(seen: dict | None) -> str:
     if not seen:
         return "not recorded"
-    if not seen.get("runs"):
-        return "unseen: no earlier run of this strategy family overlaps the window"
-    return (
-        f"seen: {seen['runs']} earlier runs overlap this window on "
-        f"{seen['overlap_days']:.1f} of {seen.get('window_days', 0):.1f} days, with "
-        f"{seen['param_sets']} distinct parameter sets"
-    )
+    return describe_seen(seen)
 
 
 def header(run: Run) -> str:
