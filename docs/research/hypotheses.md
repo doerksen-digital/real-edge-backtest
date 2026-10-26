@@ -1,6 +1,6 @@
 # Hypotheses for ema_vwap, phase 4a
 
-Written after [diagnosis.md](diagnosis.md) and before any variant was run. Approved on 2026-10-26 with changes: the H7 mechanism was replaced, the combination rule was added, and H6 waits for a separate approval. H1 to H5, H7 and H8 run in this round.
+Written after [diagnosis.md](diagnosis.md) and before any variant was run. Approved on 2026-10-26 with changes: the H7 mechanism was replaced, the combination rule was added, and H6 waits for a separate approval. H1 to H5, H7 and H8 ran in this round. Results: [results-4a.md](results-4a.md).
 
 ## Rules for every hypothesis
 

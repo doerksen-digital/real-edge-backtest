@@ -89,7 +89,7 @@ Part B adds a lockfile so a run can be reproduced with the exact package version
 
 ## Phase 4a: diagnosis and hypotheses
 
-Built on `feat/phase-4a-research`: ETH and SOL holdout data behind `--holdout`, cost, side, tail and rolling sections in the report, `trades_enriched.csv` (entry features and excursions), `report --compare`, `sweep`, entry filter and exit plug-ins (with deferred entries), higher timeframes built from 1h, and `analysis/diagnosis.py`. The BTC diagnosis is in [research/diagnosis.md](research/diagnosis.md), the hypotheses in [research/hypotheses.md](research/hypotheses.md). Hypotheses run only after the list is approved.
+Built on `feat/phase-4a-research`: ETH and SOL holdout data behind `--holdout`, cost, side, tail and rolling sections in the report, `trades_enriched.csv` (entry features and excursions), `report --compare`, `sweep`, entry filter and exit plug-ins (with deferred entries), higher timeframes built from 1h, and `analysis/diagnosis.py`. The BTC diagnosis is in [research/diagnosis.md](research/diagnosis.md), the hypotheses in [research/hypotheses.md](research/hypotheses.md). H1 to H5, H7 and H8 ran on BTC after approval, and none passed ([research/results-4a.md](research/results-4a.md)), so there is no candidate for ETHUSDT. H6 waits for approval.
 
 ## Seen and unseen data
 
